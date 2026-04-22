@@ -135,7 +135,6 @@ func TestFavicon_CustomFile(t *testing.T) {
 }
 
 func TestAPIGetMe_DisabledLogin(t *testing.T) {
-	// With DisableLogin=true, currentUser returns "" so APIGetMe returns 401
 	env := setupTestEnv(t)
 	util.DisableLogin = true
 
@@ -143,8 +142,11 @@ func TestAPIGetMe_DisabledLogin(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	err := APIGetMe(env.db)(c)
 	require.NoError(t, err)
-	// DisableLogin causes currentUser to return "", which means not authenticated
-	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var result map[string]interface{}
+	parseJSON(t, rec, &result)
+	assert.Equal(t, "admin", result["username"])
+	assert.Equal(t, true, result["admin"])
 }
 
 func TestWithAuditLogger(t *testing.T) {

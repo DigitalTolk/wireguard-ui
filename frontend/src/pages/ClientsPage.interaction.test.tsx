@@ -109,7 +109,85 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("1 clients")).toBeInTheDocument();
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
+  });
+
+  it("opens create client dialog", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      "/clients": [],
+      "/suggest-client-ips": ["10.252.1.2/32"],
+    });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("New Client"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Name")).toBeInTheDocument();
+      expect(screen.getByText("Email")).toBeInTheDocument();
+      expect(screen.getByText("Allocated IPs")).toBeInTheDocument();
+      expect(screen.getByText("Allowed IPs")).toBeInTheDocument();
+      expect(screen.getByText("Use server DNS")).toBeInTheDocument();
+      expect(screen.getByText("Enable after creation")).toBeInTheDocument();
+    });
+  });
+
+  it("creates a new client", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      "/clients": [],
+      "/suggest-client-ips": ["10.252.1.2/32"],
+    });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("New Client"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. John's Laptop")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("e.g. John's Laptop"), "Test Laptop");
+    await user.type(screen.getByPlaceholderText("john@example.com"), "test@test.com");
+    await user.click(screen.getByText("Create"));
+  });
+
+  it("cancels create dialog", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      "/clients": [],
+      "/suggest-client-ips": [],
+    });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("New Client"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Cancel")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Cancel"));
+  });
+
+  it("shows New Client button in empty state", async () => {
+    cleanup = mockFetch({ "/clients": [] });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+      expect(screen.getByText(/No clients configured yet/)).toBeInTheDocument();
     });
   });
 });

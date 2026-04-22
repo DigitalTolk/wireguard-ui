@@ -128,12 +128,20 @@
     @apply border-border outline-ring/50;
   }
   html {
-    font-size: 14px;
+    font-size: 16px;
     @apply font-sans;
   }
   body {
     @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, sans-serif;
     margin: 0;
+  }
+  /* WCAG: enforce 14px minimum — override Tailwind text-xs (12px) and text-sm (14px) */
+  .text-xs {
+    font-size: 0.875rem !important; /* 14px instead of 12px */
+    line-height: 1.25rem !important;
+  }
+  .text-sm {
+    font-size: 0.9375rem !important; /* 15px instead of 14px */
+    line-height: 1.375rem !important;
   }
 }

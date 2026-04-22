@@ -121,15 +121,16 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 		}
 
 		// generate preshared key
-		if client.PresharedKey == "" {
+		switch client.PresharedKey {
+		case "":
 			psk, err := wgtypes.GenerateKey()
 			if err != nil {
 				return apiInternalError(c, "Cannot generate preshared key")
 			}
 			client.PresharedKey = psk.String()
-		} else if client.PresharedKey == "-" {
+		case "-":
 			client.PresharedKey = ""
-		} else {
+		default:
 			if _, err := wgtypes.ParseKey(client.PresharedKey); err != nil {
 				return apiBadRequest(c, "Cannot verify preshared key")
 			}

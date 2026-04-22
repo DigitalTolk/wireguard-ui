@@ -1,7 +1,6 @@
 package router
 
 import (
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -160,7 +159,7 @@ func TestRegisterAPIv1_HealthEndpointWorks(t *testing.T) {
 	copy(secret[:], "testsecret")
 	e := New(secret)
 
-	var tmplFS fs.FS = os.DirFS("../templates")
+	tmplFS := os.DirFS("../templates")
 
 	g := e.Group("/api/v1")
 	RegisterAPIv1(g, db, nil, tmplFS, "", "", auditLog)

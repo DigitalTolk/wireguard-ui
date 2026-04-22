@@ -107,7 +107,7 @@ func TestQuery_Filtering(t *testing.T) {
 	assert.Equal(t, "client.create", entries[0].Action)
 
 	// filter by both
-	entries, total, err = logger.Query("", "", "manager", "client.update", 1, 50)
+	_, total, err = logger.Query("", "", "manager", "client.update", 1, 50)
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 }
@@ -158,7 +158,7 @@ func TestQuery_DateRange(t *testing.T) {
 
 	// past date range should return the entry
 	past := time.Now().Add(-24 * time.Hour).Format("2006-01-02")
-	entries, total, err = logger.Query(past, "", "", "", 1, 50)
+	_, total, err = logger.Query(past, "", "", "", 1, 50)
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 }

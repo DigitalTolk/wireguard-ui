@@ -23,7 +23,7 @@ describe("ClientsPage", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("No clients configured yet.")).toBeInTheDocument();
+      expect(screen.getByText(/No clients configured yet/)).toBeInTheDocument();
     });
   });
 

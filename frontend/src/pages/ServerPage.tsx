@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost } from "@/lib/api-client";
+import { apiGet, apiPost, apiPut } from "@/lib/api-client";
+import { splitList } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import type { Server } from "@/lib/types";
 
@@ -13,6 +16,40 @@ export function ServerPage() {
   const { data: server, isLoading } = useQuery({
     queryKey: ["server"],
     queryFn: () => apiGet<Server>("/server"),
+  });
+
+  const iface = server?.Interface;
+  const [addresses, setAddresses] = useState<string | null>(null);
+  const [listenPort, setListenPort] = useState<string | null>(null);
+  const [postUp, setPostUp] = useState<string | null>(null);
+  const [preDown, setPreDown] = useState<string | null>(null);
+  const [postDown, setPostDown] = useState<string | null>(null);
+
+  const addrValue = addresses ?? iface?.addresses?.join(", ") ?? "";
+  const portValue = listenPort ?? String(iface?.listen_port ?? "");
+  const postUpValue = postUp ?? iface?.post_up ?? "";
+  const preDownValue = preDown ?? iface?.pre_down ?? "";
+  const postDownValue = postDown ?? iface?.post_down ?? "";
+
+  const saveInterface = useMutation({
+    mutationFn: () =>
+      apiPut("/server/interface", {
+        addresses: splitList(addrValue),
+        listen_port: Number(portValue) || 0,
+        post_up: postUpValue,
+        pre_down: preDownValue,
+        post_down: postDownValue,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["server"] });
+      setAddresses(null);
+      setListenPort(null);
+      setPostUp(null);
+      setPreDown(null);
+      setPostDown(null);
+      toast.success("Interface settings saved");
+    },
+    onError: (err: Error) => toast.error(err.message),
   });
 
   const regenerateKeypair = useMutation({
@@ -45,22 +82,65 @@ export function ServerPage() {
         <CardHeader>
           <CardTitle>Interface</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Addresses</Label>
+        <CardContent className="grid gap-5">
+          <div className="grid gap-2">
+            <Label htmlFor="srv-addresses">Addresses</Label>
             <Input
-              defaultValue={server?.Interface?.addresses?.join(", ")}
-              disabled
+              id="srv-addresses"
+              value={addrValue}
+              onChange={(e) => setAddresses(e.target.value)}
+              placeholder="10.252.1.0/24"
               aria-label="Server addresses"
             />
           </div>
-          <div>
-            <Label>Listen Port</Label>
+          <div className="grid gap-2">
+            <Label htmlFor="srv-port">Listen Port</Label>
             <Input
-              defaultValue={server?.Interface?.listen_port}
-              disabled
+              id="srv-port"
+              type="number"
+              value={portValue}
+              onChange={(e) => setListenPort(e.target.value)}
+              placeholder="51820"
               aria-label="Listen port"
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="srv-postup">Post-Up Script</Label>
+            <Textarea
+              id="srv-postup"
+              value={postUpValue}
+              onChange={(e) => setPostUp(e.target.value)}
+              placeholder="iptables -A FORWARD ..."
+              rows={3}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="srv-predown">Pre-Down Script</Label>
+            <Textarea
+              id="srv-predown"
+              value={preDownValue}
+              onChange={(e) => setPreDown(e.target.value)}
+              placeholder="Optional pre-down script"
+              rows={3}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="srv-postdown">Post-Down Script</Label>
+            <Textarea
+              id="srv-postdown"
+              value={postDownValue}
+              onChange={(e) => setPostDown(e.target.value)}
+              placeholder="iptables -D FORWARD ..."
+              rows={3}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveInterface.mutate()}
+              disabled={saveInterface.isPending}
+            >
+              {saveInterface.isPending ? "Saving..." : "Save Interface"}
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -83,8 +163,8 @@ export function ServerPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
+        <CardContent>
+          <div className="grid gap-2">
             <Label>Public Key</Label>
             <Input value={server?.KeyPair?.public_key || ""} readOnly aria-label="Server public key" />
           </div>

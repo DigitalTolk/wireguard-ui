@@ -36,6 +36,15 @@ func APIAdmin(next echo.HandlerFunc) echo.HandlerFunc {
 // APIGetMe returns the current authenticated user's info
 func APIGetMe(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		if util.DisableLogin {
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"username":     "admin",
+				"email":        "",
+				"display_name": "Admin",
+				"admin":        true,
+			})
+		}
+
 		username := currentUser(c)
 		if username == "" {
 			return apiUnauthorized(c, "Not authenticated")

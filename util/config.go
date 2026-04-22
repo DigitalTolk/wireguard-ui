@@ -89,9 +89,7 @@ func ParseBasePath(basePath string) string {
 	if !strings.HasPrefix(basePath, "/") {
 		basePath = "/" + basePath
 	}
-	if strings.HasSuffix(basePath, "/") {
-		basePath = strings.TrimSuffix(basePath, "/")
-	}
+	basePath = strings.TrimSuffix(basePath, "/")
 	return basePath
 }
 
