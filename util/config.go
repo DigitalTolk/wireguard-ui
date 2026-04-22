@@ -90,6 +90,10 @@ func ParseBasePath(basePath string) string {
 		basePath = "/" + basePath
 	}
 	basePath = strings.TrimSuffix(basePath, "/")
+	// prevent protocol-relative URLs (e.g. "//evil.com") that bypass open-redirect checks
+	for strings.HasPrefix(basePath, "//") {
+		basePath = basePath[1:]
+	}
 	return basePath
 }
 

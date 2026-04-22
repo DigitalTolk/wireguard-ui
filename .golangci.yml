@@ -8,6 +8,9 @@ formatters:
   settings:
     gofmt:
       simplify: false
+  exclusions:
+    paths:
+      - _test\.go$
 linters:
   enable:
     - revive
@@ -27,14 +30,15 @@ linters:
         - "all"
         - "-ST1000"
         - "-ST1003"
-issues:
-  exclude-dirs:
-    - .github
-    - hack
-    - vendor
-    - frontend
-  exclude-rules:
-    - path: "_test\\.go$"
-      linters:
-        - staticcheck
-        - ineffassign
+  exclusions:
+    rules:
+      - path: "_test\\.go$"
+        linters:
+          - staticcheck
+          - ineffassign
+    paths:
+      - .github
+      - hack
+      - vendor
+      - frontend
+      - third_party
