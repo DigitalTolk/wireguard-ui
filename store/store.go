@@ -1,13 +1,14 @@
 package store
 
 import (
-	"github.com/ngoduykhanh/wireguard-ui/model"
+	"github.com/DigitalTolk/wireguard-ui/model"
 )
 
 type IStore interface {
 	Init() error
 	GetUsers() ([]model.User, error)
 	GetUserByName(username string) (model.User, error)
+	GetUserByOIDCSub(sub string) (model.User, error)
 	SaveUser(user model.User) error
 	DeleteUser(username string) error
 	GetGlobalSettings() (model.GlobalSetting, error)
@@ -19,6 +20,7 @@ type IStore interface {
 	SaveServerInterface(serverInterface model.ServerInterface) error
 	SaveServerKeyPair(serverKeyPair model.ServerKeypair) error
 	SaveGlobalSettings(globalSettings model.GlobalSetting) error
+	GetAllocatedIPs(excludeClientID string) ([]string, error)
 	GetWakeOnLanHosts() ([]model.WakeOnLanHost, error)
 	GetWakeOnLanHost(macAddress string) (*model.WakeOnLanHost, error)
 	DeleteWakeOnHostLanHost(macAddress string) error

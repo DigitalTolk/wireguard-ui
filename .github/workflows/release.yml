@@ -1,61 +1,151 @@
-name: wireguard-ui build release
+name: Release
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  releases-matrix:
-    name: Release Go Binary
-    runs-on: ubuntu-22.04
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Run Go tests
+        run: |
+          go test $(go list ./... | grep -v frontend | grep -v 'wireguard-ui$' | grep -v telegram) \
+            -count=1 -timeout 180s
+
+      - name: Run frontend tests
+        run: cd frontend && npx vitest run
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  binaries:
+    needs: test
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # build and publish in parallel: linux/386, linux/amd64, darwin/386, darwin/amd64
-        goos: [linux, freebsd, darwin]
-        goarch: [386, amd64, arm, arm64]
-        exclude:
-          - goarch: 386
-            goos: darwin
-          - goarch: arm
-            goos: darwin
-          - goarch: arm64
-            goos: darwin
-        goarm:
-          - 7
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+          - goos: linux
+            goarch: "386"
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: freebsd
+            goarch: amd64
     steps:
-    # get the source code
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    # set environment
-    - name: Set APP_VERSION env
-      run: echo "APP_VERSION=$(echo ${GITHUB_REF} | rev | cut -d'/' -f 1 | rev )" >> $GITHUB_ENV
-    - name: Set BUILD_TIME env
-      run: echo "BUILD_TIME=$(date)" >> $GITHUB_ENV
-    - name: Environment Printer
-      uses: managedkaos/print-env@v1.0
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-    # setup node
-    - uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        registry-url: 'https://registry.npmjs.org'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-    # prepare assets
-    - name: Prepare assets
-      run: |
-        chmod +x ./prepare_assets.sh
-        ./prepare_assets.sh
+      - name: Build frontend
+        run: cd frontend && npm ci && npm run build
 
-    # build and make the releases
-    - name: Build and make the releases
-      uses: wangyoucao577/go-release-action@master
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: ${{ matrix.goos }}
-        goarch: ${{ matrix.goarch }}
-        goversion: "https://dl.google.com/go/go1.21.5.linux-amd64.tar.gz"
-        pre_command: export CGO_ENABLED=0
-        binary_name: "wireguard-ui"
-        build_flags: -v
-        ldflags: -X "main.appVersion=${{ env.APP_VERSION }}" -X "main.buildTime=${{ env.BUILD_TIME }}" -X main.gitCommit=${{ github.sha }} -X main.gitRef=${{ github.ref }}
+      - name: Build binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          BINARY_NAME="wireguard-ui-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            BINARY_NAME="${BINARY_NAME}v${{ matrix.goarm }}"
+          fi
+          go build -ldflags="-X 'main.appVersion=${{ github.ref_name }}' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'main.gitCommit=${{ github.sha }}'" \
+            -o "${BINARY_NAME}" .
+          tar czf "${BINARY_NAME}.tar.gz" "${BINARY_NAME}" init.sh
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: wireguard-ui-*.tar.gz

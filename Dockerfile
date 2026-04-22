@@ -1,6 +1,14 @@
-# Build stage
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.21-alpine3.19 AS builder
-LABEL maintainer="Khanh Ngo <k@ndk.name>"
+# Stage 1: Build React SPA
+FROM node:20-alpine AS frontend-builder
+WORKDIR /build/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+# Output is in /build/assets
+
+# Stage 2: Build Go binary
+FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.22-alpine AS builder
 
 ARG BUILDPLATFORM
 ARG TARGETOS
@@ -9,59 +17,28 @@ ARG APP_VERSION=dev
 ARG BUILD_TIME
 ARG GIT_COMMIT
 
-ARG BUILD_DEPENDENCIES="npm \
-    yarn"
-
-# Get dependencies
-RUN apk add --update --no-cache ${BUILD_DEPENDENCIES}
-
 WORKDIR /build
 
-# Add dependencies
-COPY go.mod /build
-COPY go.sum /build
-COPY package.json /build
-COPY yarn.lock /build
-
-# Prepare assets
-RUN yarn install --pure-lockfile --production && \
-    yarn cache clean
-
-# Move admin-lte dist
-RUN mkdir -p assets/dist/js assets/dist/css && \
-    cp /build/node_modules/admin-lte/dist/js/adminlte.min.js \
-    assets/dist/js/adminlte.min.js && \
-    cp /build/node_modules/admin-lte/dist/css/adminlte.min.css \
-    assets/dist/css/adminlte.min.css
-
-# Move plugin assets
-RUN mkdir -p assets/plugins && \
-    cp -r /build/node_modules/admin-lte/plugins/jquery/ \
-    /build/node_modules/admin-lte/plugins/fontawesome-free/ \
-    /build/node_modules/admin-lte/plugins/bootstrap/ \
-    /build/node_modules/admin-lte/plugins/icheck-bootstrap/ \
-    /build/node_modules/admin-lte/plugins/toastr/ \
-    /build/node_modules/admin-lte/plugins/jquery-validation/ \
-    /build/node_modules/admin-lte/plugins/select2/ \
-    /build/node_modules/jquery-tags-input/ \
-    assets/plugins/
+# Add Go dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
 # Add sources
 COPY . /build
 
-# Move custom assets
-RUN cp -r /build/custom/ assets/
+# Copy built frontend assets
+COPY --from=frontend-builder /build/assets ./assets/
 
-# Build
+# Build Go binary
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-X 'main.appVersion=${APP_VERSION}' -X 'main.buildTime=${BUILD_TIME}' -X 'main.gitCommit=${GIT_COMMIT}'" -a -o wg-ui .
 
-# Release stage
-FROM alpine:3.19
+# Stage 3: Release
+FROM alpine:3.20
 
 RUN addgroup -S wgui && \
     adduser -S -D -G wgui wgui
 
-RUN apk --no-cache add ca-certificates wireguard-tools jq iptables
+RUN apk --no-cache add ca-certificates wireguard-tools iptables
 
 WORKDIR /app
 

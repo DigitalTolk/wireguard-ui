@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Lint frontend
+        run: cd frontend && npm run lint
+
+      - name: Build frontend
+        run: cd frontend && npm run build
+
+      - name: Lint Go
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      - name: Build Go
+        run: CGO_ENABLED=0 go build -o /dev/null .
+
+      - name: Run Go tests with coverage
+        run: |
+          go test $(go list ./... | grep -v frontend | grep -v 'wireguard-ui$' | grep -v telegram) \
+            -coverprofile=coverage.out -covermode=atomic -timeout 180s
+
+      - name: Run frontend tests with coverage
+        run: cd frontend && npx vitest run --coverage
+
+      - name: Upload Go coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: coverage.out
+          format: golang
+          flag-name: go
+          parallel: true
+
+      - name: Upload frontend coverage to Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          file: frontend/coverage/lcov.info
+          format: lcov
+          flag-name: frontend
+          parallel: true
+
+  coveralls-finish:
+    needs: build-and-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Finalize Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          parallel-finished: true

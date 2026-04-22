@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/DigitalTolk/wireguard-ui/util"
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
-	"github.com/ngoduykhanh/wireguard-ui/util"
+	"github.com/rs/xid"
 )
 
 func ValidSession(next echo.HandlerFunc) echo.HandlerFunc {
@@ -71,7 +72,10 @@ func isValidSession(c echo.Context) bool {
 	// Check if user still exists and unchanged
 	username := fmt.Sprintf("%s", sess.Values["username"])
 	userHash := getUserHash(sess)
-	if uHash, ok := util.DBUsersToCRC32[username]; !ok || userHash != uHash {
+	util.DBUsersToCRC32Mutex.RLock()
+	uHash, ok := util.DBUsersToCRC32[username]
+	util.DBUsersToCRC32Mutex.RUnlock()
+	if !ok || userHash != uHash {
 		return false
 	}
 
@@ -212,6 +216,47 @@ func isAdmin(c echo.Context) bool {
 	sess, _ := session.Get("session", c)
 	admin := fmt.Sprintf("%t", sess.Values["admin"])
 	return admin == "true"
+}
+
+// createSession establishes a new authenticated session for the user
+func createSession(c echo.Context, username string, admin bool, userCRC32 uint32, rememberMe bool) {
+	maxAge := 0
+	if rememberMe {
+		if util.SessionMaxDuration > 0 {
+			maxAge = int(util.SessionMaxDuration)
+		} else {
+			maxAge = 86400 * 7
+		}
+	}
+
+	cookiePath := util.GetCookiePath()
+	sess, _ := session.Get("session", c)
+	sess.Options = &sessions.Options{
+		Path:     cookiePath,
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	}
+
+	tokenUID := xid.New().String()
+	now := time.Now().UTC().Unix()
+	sess.Values["username"] = username
+	sess.Values["user_hash"] = userCRC32
+	sess.Values["admin"] = admin
+	sess.Values["session_token"] = tokenUID
+	sess.Values["max_age"] = maxAge
+	sess.Values["created_at"] = now
+	sess.Values["updated_at"] = now
+	sess.Save(c.Request(), c.Response())
+
+	cookie := new(http.Cookie)
+	cookie.Name = "session_token"
+	cookie.Path = cookiePath
+	cookie.Value = tokenUID
+	cookie.MaxAge = maxAge
+	cookie.HttpOnly = true
+	cookie.SameSite = http.SameSiteLaxMode
+	c.SetCookie(cookie)
 }
 
 func setUser(c echo.Context, username string, admin bool, userCRC32 uint32) {
