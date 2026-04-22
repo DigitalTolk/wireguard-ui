@@ -86,13 +86,10 @@ const (
 )
 
 func ParseBasePath(basePath string) string {
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-	basePath = strings.TrimSuffix(basePath, "/")
-	// prevent protocol-relative URLs (e.g. "//evil.com") that bypass open-redirect checks
-	for strings.HasPrefix(basePath, "//") {
-		basePath = basePath[1:]
+	// clean the path: ensure single leading slash, no trailing slash
+	basePath = "/" + strings.Trim(basePath, "/")
+	if basePath == "/" {
+		basePath = ""
 	}
 	return basePath
 }
