@@ -288,7 +288,7 @@ func TestSaveServerInterface_WithPreDown(t *testing.T) {
 	db := initTestDB(t)
 
 	iface := model.ServerInterface{
-		Addresses: []string{"10.0.0.0/24"},
+		Addresses:  []string{"10.0.0.0/24"},
 		ListenPort: 51820,
 		PostUp:     "iptables -A FORWARD -i wg0 -j ACCEPT",
 		PreDown:    "iptables -D FORWARD -i wg0 -j ACCEPT",

@@ -257,25 +257,23 @@ func main() {
 	// SPA frontend (embedded React app)
 	assetsDir, _ := fs.Sub(fs.FS(embeddedAssets), "assets")
 	assetHandler := http.FileServer(http.FS(assetsDir))
-	app.GET(util.BasePath+"/assets/*", echo.WrapHandler(http.StripPrefix(util.BasePath+"/assets/", assetHandler)))
-
-	// SPA catch-all: serve index.html for client-side routing
-	wrappedAssetHandler := echo.WrapHandler(http.StripPrefix(util.BasePath+"/", assetHandler))
 	indexHTML, _ := fs.ReadFile(assetsDir, "index.html")
-	app.GET(util.BasePath+"/*", func(c echo.Context) error {
-		reqPath := strings.TrimPrefix(c.Request().URL.Path, util.BasePath+"/")
-		if reqPath == "" {
-			reqPath = "index.html"
-		}
-		if f, err := assetsDir.Open(reqPath); err == nil {
-			f.Close()
-			return wrappedAssetHandler(c)
-		}
+
+	// serve static files (JS, CSS, fonts)
+	app.GET(util.BasePath+"/static/*", echo.WrapHandler(http.StripPrefix(util.BasePath+"/", assetHandler)))
+
+	// SPA catch-all: serve index.html for all non-file routes
+	serveIndex := func(c echo.Context) error {
 		if indexHTML == nil {
 			return c.String(http.StatusNotFound, "Not found")
 		}
 		return c.HTMLBlob(http.StatusOK, indexHTML)
-	})
+	}
+	app.GET(util.BasePath+"/", serveIndex)
+	if util.BasePath == "" {
+		app.GET("/", serveIndex)
+	}
+	app.GET(util.BasePath+"/*", serveIndex)
 
 	// Telegram bot
 	initDeps := telegram.TgBotInitDependencies{

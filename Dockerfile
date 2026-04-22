@@ -8,7 +8,7 @@ RUN npm run build
 # Output is in /build/assets
 
 # Stage 2: Build Go binary
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.22-alpine AS builder
+FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.26-alpine AS builder
 
 ARG BUILDPLATFORM
 ARG TARGETOS

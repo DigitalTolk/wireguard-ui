@@ -1,6 +1,6 @@
 module github.com/DigitalTolk/wireguard-ui
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/NicoNex/echotron/v3 v3.27.0

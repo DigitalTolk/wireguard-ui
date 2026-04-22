@@ -38,3 +38,15 @@ func TestVerifyHash_InvalidBase64(t *testing.T) {
 	_, err := VerifyHash("not-base64!!!", "password")
 	assert.Error(t, err)
 }
+
+func TestVerifyHash_InvalidBcryptHash(t *testing.T) {
+	// Valid base64 but not a valid bcrypt hash
+	_, err := VerifyHash("aGVsbG93b3JsZA==", "password")
+	assert.Error(t, err)
+}
+
+func TestHashPassword_EmptyPassword(t *testing.T) {
+	hash, err := HashPassword("")
+	require.NoError(t, err)
+	assert.NotEmpty(t, hash)
+}

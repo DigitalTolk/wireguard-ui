@@ -964,6 +964,25 @@ func TestWriteWireGuardServerConfig_InvalidCustomTemplateFile(t *testing.T) {
 
 // --- StringFromEmbedFile ---
 
+func TestWriteWireGuardServerConfig_InvalidConfigPath(t *testing.T) {
+	settings := model.GlobalSetting{
+		ConfigFilePath: "/nonexistent/dir/wg0.conf",
+	}
+	server := model.Server{
+		Interface: &model.ServerInterface{
+			Addresses:  []string{"10.0.0.0/24"},
+			ListenPort: 51820,
+		},
+		KeyPair: &model.ServerKeypair{
+			PrivateKey: "privkey",
+			PublicKey:  "pubkey",
+		},
+	}
+
+	err := WriteWireGuardServerConfig(os.DirFS("../templates"), server, nil, nil, settings)
+	assert.Error(t, err)
+}
+
 func TestStringFromEmbedFile_NotFound(t *testing.T) {
 	fsys := os.DirFS(t.TempDir())
 	_, err := StringFromEmbedFile(fsys, "nonexistent.conf")
