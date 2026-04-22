@@ -17,6 +17,7 @@ vendor/
 assets/*
 !assets/.gitkeep
 node_modules/
+coverage/
 
 # IDEs
 .vscode

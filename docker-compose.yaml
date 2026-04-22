@@ -8,6 +8,7 @@ services:
       - "5001:5001"
     environment:
       - BIND_ADDRESS=0.0.0.0:5001
+      - WGUI_CONFIG_FILE_PATH=/app/db/wg0.conf
       - DISABLE_LOGIN=true
       - WGUI_LOG_LEVEL=DEBUG
       - WGUI_MANAGE_START=false
