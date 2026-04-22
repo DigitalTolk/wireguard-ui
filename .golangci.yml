@@ -1,26 +1,44 @@
+version: "2"
 run:
   timeout: 5m
-  skip-dirs:
-    - .github
-    - hack
-    - vendor
-linters:
-  disable-all: true
+formatters:
   enable:
     - gofmt
-    - revive
     - goimports
+  settings:
+    gofmt:
+      simplify: false
+  exclusions:
+    paths:
+      - _test\.go$
+linters:
+  enable:
+    - revive
     - govet
     - unused
     - whitespace
     - misspell
-  fast: false
-linters-settings:
-  gofmt:
-    simplify: false
-  revive:
+  disable:
+    - errcheck
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST1000"
+        - "-ST1003"
+  exclusions:
     rules:
-      - name: exported
-        disabled: true
-issues:
-  exclude-use-default: false
+      - path: "_test\\.go$"
+        linters:
+          - staticcheck
+          - ineffassign
+    paths:
+      - .github
+      - hack
+      - vendor
+      - frontend
+      - third_party

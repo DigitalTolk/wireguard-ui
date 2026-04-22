@@ -13,25 +13,21 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
-	"github.com/ngoduykhanh/wireguard-ui/store"
-	"github.com/ngoduykhanh/wireguard-ui/telegram"
+	"github.com/DigitalTolk/wireguard-ui/store"
+	"github.com/DigitalTolk/wireguard-ui/telegram"
 	"github.com/skip2/go-qrcode"
-	"golang.org/x/mod/sumdb/dirhash"
 
+	"github.com/DigitalTolk/wireguard-ui/model"
 	externalip "github.com/glendc/go-external-ip"
 	"github.com/labstack/gommon/log"
-	"github.com/ngoduykhanh/wireguard-ui/model"
-	"github.com/sdomino/scribble"
 )
 
-var qrCodeSettings = model.QRCodeSettings{
+var DefaultQRCodeSettings = model.QRCodeSettings{
 	Enabled:    true,
 	IncludeDNS: true,
 	IncludeMTU: true,
@@ -117,10 +113,7 @@ func ContainsCIDR(ipnet1, ipnet2 *net.IPNet) bool {
 // ValidateCIDR to validate a network CIDR
 func ValidateCIDR(cidr string) bool {
 	_, _, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // ValidateCIDRList to validate a list of network CIDR
@@ -128,12 +121,12 @@ func ValidateCIDRList(cidrs []string, allowEmpty bool) bool {
 	for _, cidr := range cidrs {
 		if allowEmpty {
 			if len(cidr) > 0 {
-				if ValidateCIDR(cidr) == false {
+				if !ValidateCIDR(cidr) {
 					return false
 				}
 			}
 		} else {
-			if ValidateCIDR(cidr) == false {
+			if !ValidateCIDR(cidr) {
 				return false
 			}
 		}
@@ -143,40 +136,28 @@ func ValidateCIDRList(cidrs []string, allowEmpty bool) bool {
 
 // ValidateAllowedIPs to validate allowed ip addresses in CIDR format
 func ValidateAllowedIPs(cidrs []string) bool {
-	if ValidateCIDRList(cidrs, false) == false {
-		return false
-	}
-	return true
+	return ValidateCIDRList(cidrs, false)
 }
 
 // ValidateExtraAllowedIPs to validate extra Allowed ip addresses, allowing empty strings
 func ValidateExtraAllowedIPs(cidrs []string) bool {
-	if ValidateCIDRList(cidrs, true) == false {
-		return false
-	}
-	return true
+	return ValidateCIDRList(cidrs, true)
 }
 
 // ValidateServerAddresses to validate allowed ip addresses in CIDR format
 func ValidateServerAddresses(cidrs []string) bool {
-	if ValidateCIDRList(cidrs, false) == false {
-		return false
-	}
-	return true
+	return ValidateCIDRList(cidrs, false)
 }
 
 // ValidateIPAddress to validate the IPv4 and IPv6 address
 func ValidateIPAddress(ip string) bool {
-	if net.ParseIP(ip) == nil {
-		return false
-	}
-	return true
+	return net.ParseIP(ip) != nil
 }
 
 // ValidateIPAddressList to validate a list of IPv4 and IPv6 addresses
 func ValidateIPAddressList(ips []string) bool {
 	for _, ip := range ips {
-		if ValidateIPAddress(ip) == false {
+		if !ValidateIPAddress(ip) {
 			return false
 		}
 	}
@@ -257,59 +238,6 @@ func GetIPFromCIDR(cidr string) (string, error) {
 		return "", err
 	}
 	return ip.String(), nil
-}
-
-// GetAllocatedIPs to get all ip addresses allocated to clients and server
-func GetAllocatedIPs(ignoreClientID string) ([]string, error) {
-	allocatedIPs := make([]string, 0)
-
-	// initialize database directory
-	dir := "./db"
-	db, err := scribble.New(dir, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// read server information
-	serverInterface := model.ServerInterface{}
-	if err := db.Read("server", "interfaces", &serverInterface); err != nil {
-		return nil, err
-	}
-
-	// append server's addresses to the result
-	for _, cidr := range serverInterface.Addresses {
-		ip, err := GetIPFromCIDR(cidr)
-		if err != nil {
-			return nil, err
-		}
-		allocatedIPs = append(allocatedIPs, ip)
-	}
-
-	// read client information
-	records, err := db.ReadAll("clients")
-	if err != nil {
-		return nil, err
-	}
-
-	// append client's addresses to the result
-	for _, f := range records {
-		client := model.Client{}
-		if err := json.Unmarshal(f, &client); err != nil {
-			return nil, err
-		}
-
-		if client.ID != ignoreClientID {
-			for _, cidr := range client.AllocatedIPs {
-				ip, err := GetIPFromCIDR(cidr)
-				if err != nil {
-					return nil, err
-				}
-				allocatedIPs = append(allocatedIPs, ip)
-			}
-		}
-	}
-
-	return allocatedIPs, nil
 }
 
 // inc from https://play.golang.org/p/m8TNTtygK0
@@ -427,14 +355,19 @@ func findSubnetRangeForIP(cidr string) (uint16, error) {
 		return 0, err
 	}
 
+	IPToSubnetRangeMutex.RLock()
 	if srName, ok := IPToSubnetRange[ip.String()]; ok {
+		IPToSubnetRangeMutex.RUnlock()
 		return srName, nil
 	}
+	IPToSubnetRangeMutex.RUnlock()
 
 	for srIndex, sr := range SubnetRangesOrder {
 		for _, srCIDR := range SubnetRanges[sr] {
 			if srCIDR.Contains(ip) {
+				IPToSubnetRangeMutex.Lock()
 				IPToSubnetRange[ip.String()] = uint16(srIndex)
+				IPToSubnetRangeMutex.Unlock()
 				return uint16(srIndex), nil
 			}
 		}
@@ -605,7 +538,7 @@ func SendRequestedConfigsToTelegram(db store.IStore, userid int64) []string {
 		TgUseridToClientIDMutex.RUnlock()
 
 		for _, clid := range clids {
-			clientData, err := db.GetClientByID(clid, qrCodeSettings)
+			clientData, err := db.GetClientByID(clid, DefaultQRCodeSettings)
 			if err != nil {
 				// return fmt.Errorf("unable to get client")
 				failedList = append(failedList, clid)
@@ -727,17 +660,33 @@ func ParseLogLevel(lvl string) (log.Lvl, error) {
 	}
 }
 
-// GetCurrentHash returns current hashes
+// GetCurrentHash returns current hashes computed from database content
 func GetCurrentHash(db store.IStore) (string, string) {
-	hashClients, _ := dirhash.HashDir(path.Join(db.GetPath(), "clients"), "prefix", dirhash.Hash1)
-	files := append([]string(nil), "prefix/global_settings.json", "prefix/interfaces.json", "prefix/keypair.json")
-
-	osOpen := func(name string) (io.ReadCloser, error) {
-		return os.Open(filepath.Join(path.Join(db.GetPath(), "server"), strings.TrimPrefix(name, "prefix")))
+	// hash clients from DB content
+	clients, err := db.GetClients(false)
+	if err != nil {
+		return "error", "error"
 	}
-	hashServer, _ := dirhash.Hash1(files, osOpen)
+	clientBytes, _ := json.Marshal(clients)
+	clientHash := fmt.Sprintf("%x", crc32.ChecksumIEEE(clientBytes))
 
-	return hashClients, hashServer
+	// hash server config from DB content
+	server, err := db.GetServer()
+	if err != nil {
+		return clientHash, "error"
+	}
+	settings, err := db.GetGlobalSettings()
+	if err != nil {
+		return clientHash, "error"
+	}
+	serverData := map[string]interface{}{
+		"server":   server,
+		"settings": settings,
+	}
+	serverBytes, _ := json.Marshal(serverData)
+	serverHash := fmt.Sprintf("%x", crc32.ChecksumIEEE(serverBytes))
+
+	return clientHash, serverHash
 }
 
 func HashesChanged(db store.IStore) bool {

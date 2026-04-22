@@ -1,6 +1,13 @@
-# Node
+# Dependencies
 node_modules
-npm-debug.log
+frontend/node_modules
+
+# Build artifacts
+assets
+wg-ui
+wireguard-ui
+coverage.out
+frontend/coverage
 
 # Docker
 Dockerfile*
@@ -12,19 +19,13 @@ docker-compose*
 .gitattributes
 .gitignore
 
-# Vscode
+# IDE
 .vscode
 *.code-workspace
 
-# Others
-.lgtm.yml
-.travis.yml
-.vscode
-
-# App data & bin
+# App data
 db
-assets
-wireguard-ui
 
-# Examples
+# CI/CD
+.github
 examples

@@ -28,6 +28,15 @@ var (
 	BasePath           string
 	SubnetRanges       map[string]([]*net.IPNet)
 	SubnetRangesOrder  []string
+
+	// OIDC config
+	OIDCIssuerURL     string
+	OIDCClientID      string
+	OIDCClientSecret  string
+	OIDCRedirectURL   string
+	OIDCScopes        []string
+	OIDCAutoProvision bool
+	OIDCAdminGroups   []string
 )
 
 const (
@@ -64,14 +73,23 @@ const (
 	DefaultClientExtraAllowedIpsEnvVar     = "WGUI_DEFAULT_CLIENT_EXTRA_ALLOWED_IPS"
 	DefaultClientUseServerDNSEnvVar        = "WGUI_DEFAULT_CLIENT_USE_SERVER_DNS"
 	DefaultClientEnableAfterCreationEnvVar = "WGUI_DEFAULT_CLIENT_ENABLE_AFTER_CREATION"
+
+	// OIDC env vars
+	OIDCIssuerURLEnvVar     = "OIDC_ISSUER_URL"
+	OIDCClientIDEnvVar      = "OIDC_CLIENT_ID"
+	OIDCClientSecretEnvVar  = "OIDC_CLIENT_SECRET"
+	OIDCClientSecretFileVar = "OIDC_CLIENT_SECRET_FILE"
+	OIDCRedirectURLEnvVar   = "OIDC_REDIRECT_URL"
+	OIDCScopesEnvVar        = "OIDC_SCOPES"
+	OIDCAutoProvisionEnvVar = "OIDC_AUTO_PROVISION"
+	OIDCAdminGroupsEnvVar   = "OIDC_ADMIN_GROUPS"
 )
 
 func ParseBasePath(basePath string) string {
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-	if strings.HasSuffix(basePath, "/") {
-		basePath = strings.TrimSuffix(basePath, "/")
+	// clean the path: ensure single leading slash, no trailing slash
+	basePath = "/" + strings.Trim(basePath, "/")
+	if basePath == "/" {
+		basePath = ""
 	}
 	return basePath
 }
