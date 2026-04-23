@@ -103,7 +103,7 @@ func TestRegisterAPIv1_RoutesRegistered(t *testing.T) {
 	tmplFS := os.DirFS("../templates")
 
 	g := e.Group("/api/v1")
-	RegisterAPIv1(g, db, nil, tmplFS, "", "", auditLog)
+	RegisterAPIv1(g, db, nil, tmplFS, "", "", "dev", "test", auditLog)
 
 	routes := e.Routes()
 
@@ -119,6 +119,7 @@ func TestRegisterAPIv1_RoutesRegistered(t *testing.T) {
 		"POST:/api/v1/auth/logout",
 		"GET:/api/v1/auth/info",
 		"GET:/api/v1/clients",
+		"GET:/api/v1/clients/export",
 		"GET:/api/v1/clients/:id",
 		"POST:/api/v1/clients",
 		"PUT:/api/v1/clients/:id",
@@ -130,7 +131,6 @@ func TestRegisterAPIv1_RoutesRegistered(t *testing.T) {
 		"GET:/api/v1/settings",
 		"PUT:/api/v1/settings",
 		"GET:/api/v1/users",
-		"POST:/api/v1/users",
 		"GET:/api/v1/status",
 		"GET:/api/v1/audit-logs",
 		"GET:/api/v1/audit-logs/export",
@@ -162,7 +162,7 @@ func TestRegisterAPIv1_HealthEndpointWorks(t *testing.T) {
 	tmplFS := os.DirFS("../templates")
 
 	g := e.Group("/api/v1")
-	RegisterAPIv1(g, db, nil, tmplFS, "", "", auditLog)
+	RegisterAPIv1(g, db, nil, tmplFS, "", "", "dev", "test", auditLog)
 
 	// Test the auth/info endpoint which requires no auth
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/info", nil)

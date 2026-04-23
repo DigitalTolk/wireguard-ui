@@ -13,16 +13,44 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/gommon/log"
 	"github.com/rs/xid"
-	"github.com/skip2/go-qrcode"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/xuri/excelize/v2"
 
 	"github.com/DigitalTolk/wireguard-ui/emailer"
 	"github.com/DigitalTolk/wireguard-ui/model"
 	"github.com/DigitalTolk/wireguard-ui/store"
-	"github.com/DigitalTolk/wireguard-ui/telegram"
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
+
+// connectedThreshold defines how recently a peer must have handshaked to be considered connected
+var connectedThreshold = 3 * time.Minute
+
+func connectedPeerKeys() map[string]bool {
+	keys := make(map[string]bool)
+	wgClient, err := wgctrl.New()
+	if err != nil {
+		log.Warnf("Cannot create wgctrl client: %v", err)
+		return keys
+	}
+	defer wgClient.Close()
+
+	devices, err := wgClient.Devices()
+	if err != nil {
+		log.Warnf("Cannot list WireGuard devices: %v", err)
+		return keys
+	}
+
+	for _, dev := range devices {
+		for _, peer := range dev.Peers {
+			if time.Since(peer.LastHandshakeTime) < connectedThreshold {
+				keys[peer.PublicKey.String()] = true
+			}
+		}
+	}
+	return keys
+}
 
 // APIListClients returns all WireGuard clients
 func APIListClients(db store.IStore) echo.HandlerFunc {
@@ -31,10 +59,48 @@ func APIListClients(db store.IStore) echo.HandlerFunc {
 		if err != nil {
 			return apiInternalError(c, fmt.Sprintf("Cannot get client list: %v", err))
 		}
-		for i, clientData := range clientDataList {
-			clientDataList[i] = util.FillClientSubnetRange(clientData)
+
+		search := strings.ToLower(c.QueryParam("search"))
+		status := c.QueryParam("status")
+
+		// Only query WireGuard when connected/disconnected filter is active
+		var connKeys map[string]bool
+		if status == "connected" || status == "disconnected" {
+			connKeys = connectedPeerKeys()
 		}
-		return c.JSON(http.StatusOK, clientDataList)
+
+		filtered := make([]model.ClientData, 0, len(clientDataList))
+		for _, clientData := range clientDataList {
+			clientData = util.FillClientSubnetRange(clientData)
+			cl := clientData.Client
+
+			// filter by status
+			if status == "enabled" && !cl.Enabled {
+				continue
+			}
+			if status == "disabled" && cl.Enabled {
+				continue
+			}
+			if status == "connected" && !connKeys[cl.PublicKey] {
+				continue
+			}
+			if status == "disconnected" && connKeys[cl.PublicKey] {
+				continue
+			}
+
+			// filter by search
+			if search != "" {
+				nameLower := strings.ToLower(cl.Name)
+				emailLower := strings.ToLower(cl.Email)
+				ipsLower := strings.ToLower(strings.Join(cl.AllocatedIPs, " "))
+				if !strings.Contains(nameLower, search) && !strings.Contains(emailLower, search) && !strings.Contains(ipsLower, search) {
+					continue
+				}
+			}
+
+			filtered = append(filtered, clientData)
+		}
+		return c.JSON(http.StatusOK, filtered)
 	}
 }
 
@@ -60,6 +126,11 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 		var client model.Client
 		if err := c.Bind(&client); err != nil {
 			return apiBadRequest(c, "Invalid request body")
+		}
+
+		// validate email is required
+		if strings.TrimSpace(client.Email) == "" {
+			return apiBadRequest(c, "Email is required")
 		}
 
 		// validate telegram userid
@@ -144,7 +215,7 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 		}
 
 		log.Infof("Created wireguard client: %v", client.Name)
-		auditLogEvent(c, "client.create", "client", client.ID, map[string]string{"name": client.Name})
+		auditLogEvent(c, "client.create", "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusCreated, client)
 	}
 }
@@ -224,7 +295,7 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 		}
 
 		client.Name = _client.Name
-		client.Email = _client.Email
+		// email is immutable after creation — preserve original
 		client.TgUserid = _client.TgUserid
 		client.Enabled = _client.Enabled
 		client.UseServerDNS = _client.UseServerDNS
@@ -242,7 +313,7 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 		}
 
 		log.Infof("Updated client: %v", client.Name)
-		auditLogEvent(c, "client.update", "client", client.ID, map[string]string{"name": client.Name})
+		auditLogEvent(c, "client.update", "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusOK, client)
 	}
 }
@@ -278,7 +349,7 @@ func APIPatchClientStatus(db store.IStore) echo.HandlerFunc {
 			action = "client.enable"
 		}
 		log.Infof("Changed client %s enabled status to %v", client.ID, body.Enabled)
-		auditLogEvent(c, action, "client", client.ID, map[string]interface{}{"name": client.Name, "enabled": body.Enabled})
+		auditLogEvent(c, action, "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusOK, client)
 	}
 }
@@ -325,6 +396,7 @@ func APIDownloadClientConfig(db store.IStore) echo.HandlerFunc {
 
 		config := util.BuildClientConfig(*clientData.Client, server, globalSettings)
 		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf("attachment; filename=%s.conf", clientData.Client.Name))
+		auditLogEvent(c, "client.config.download", "client", clientID, map[string]string{"name": clientData.Client.Name, "email": clientData.Client.Email})
 		return c.Stream(http.StatusOK, "text/conf", strings.NewReader(config))
 	}
 }
@@ -390,46 +462,8 @@ func APIEmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, email
 			return apiInternalError(c, err.Error())
 		}
 
+		auditLogEvent(c, "client.config.email", "client", clientID, map[string]string{"name": clientData.Client.Name, "email": clientData.Client.Email, "sent_to": body.Email})
 		return c.JSON(http.StatusOK, map[string]string{"message": "Email sent successfully"})
-	}
-}
-
-// APITelegramClient sends the client config via Telegram
-func APITelegramClient(db store.IStore) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		clientID := c.Param("id")
-		if _, err := xid.FromString(clientID); err != nil {
-			return apiBadRequest(c, "Invalid client ID")
-		}
-
-		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
-		if err != nil {
-			return apiNotFound(c, "Client not found")
-		}
-
-		server, _ := db.GetServer()
-		globalSettings, _ := db.GetGlobalSettings()
-		config := util.BuildClientConfig(*clientData.Client, server, globalSettings)
-
-		var qrData []byte
-		if clientData.Client.PrivateKey != "" {
-			qrData, err = qrcode.Encode(config, qrcode.Medium, 512)
-			if err != nil {
-				return apiInternalError(c, "Cannot generate QR code")
-			}
-		}
-
-		userid, err := strconv.ParseInt(clientData.Client.TgUserid, 10, 64)
-		if err != nil {
-			return apiBadRequest(c, "Invalid Telegram user ID")
-		}
-
-		err = telegram.SendConfig(userid, clientData.Client.Name, []byte(config), qrData, false)
-		if err != nil {
-			return apiInternalError(c, err.Error())
-		}
-
-		return c.JSON(http.StatusOK, map[string]string{"message": "Telegram message sent"})
 	}
 }
 
@@ -570,7 +604,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 						LastHandshakeRel:  time.Since(devices[i].Peers[j].LastHandshakeTime),
 						AllocatedIP:       allocatedIPs,
 					}
-					p.Connected = p.LastHandshakeRel.Minutes() < 3.
+					p.Connected = p.LastHandshakeRel < connectedThreshold
 
 					if isAdmin(c) && devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
@@ -620,7 +654,59 @@ func APIApplyServerConfig(db store.IStore, tmplDir fs.FS) echo.HandlerFunc {
 			return apiInternalError(c, fmt.Sprintf("Cannot update hashes: %v", err))
 		}
 
+		auditLogEvent(c, "server.config.apply", "server", "config", nil)
 		return c.JSON(http.StatusOK, map[string]string{"message": "Config applied successfully"})
+	}
+}
+
+// APIExportClients exports all clients as an Excel file
+func APIExportClients(db store.IStore) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		clientDataList, err := db.GetClients(false)
+		if err != nil {
+			return apiInternalError(c, "Cannot get client list")
+		}
+
+		f := excelize.NewFile()
+		sheet := "Clients"
+		f.SetSheetName("Sheet1", sheet)
+
+		headers := []string{"Name", "Email", "Allocated IPs", "Allowed IPs", "Extra Allowed IPs", "Enabled", "Created", "Updated"}
+		for i, h := range headers {
+			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+			f.SetCellValue(sheet, cell, h)
+		}
+
+		style, _ := f.NewStyle(&excelize.Style{
+			Font: &excelize.Font{Bold: true},
+		})
+		f.SetCellStyle(sheet, "A1", fmt.Sprintf("%s1", string(rune('A'+len(headers)-1))), style)
+
+		for row, cd := range clientDataList {
+			cl := cd.Client
+			r := row + 2
+			f.SetCellValue(sheet, fmt.Sprintf("A%d", r), cl.Name)
+			f.SetCellValue(sheet, fmt.Sprintf("B%d", r), cl.Email)
+			f.SetCellValue(sheet, fmt.Sprintf("C%d", r), strings.Join(cl.AllocatedIPs, ", "))
+			f.SetCellValue(sheet, fmt.Sprintf("D%d", r), strings.Join(cl.AllowedIPs, ", "))
+			f.SetCellValue(sheet, fmt.Sprintf("E%d", r), strings.Join(cl.ExtraAllowedIPs, ", "))
+			enabled := "No"
+			if cl.Enabled {
+				enabled = "Yes"
+			}
+			f.SetCellValue(sheet, fmt.Sprintf("F%d", r), enabled)
+			f.SetCellValue(sheet, fmt.Sprintf("G%d", r), cl.CreatedAt.Format("2006-01-02 15:04:05"))
+			f.SetCellValue(sheet, fmt.Sprintf("H%d", r), cl.UpdatedAt.Format("2006-01-02 15:04:05"))
+		}
+
+		for i := range headers {
+			col, _ := excelize.ColumnNumberToName(i + 1)
+			f.SetColWidth(sheet, col, col, 25)
+		}
+
+		c.Response().Header().Set("Content-Disposition", "attachment; filename=clients.xlsx")
+		c.Response().Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+		return f.Write(c.Response())
 	}
 }
 

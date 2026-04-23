@@ -220,6 +220,7 @@ func TestAPICreateClient_InvalidAllocatedIPs(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "Bad IPs",
+		"email":             "bad@test.com",
 		"allocated_ips":     []string{"192.168.99.1/32"}, // outside server range
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -236,6 +237,7 @@ func TestAPICreateClient_InvalidAllowedIPs(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "Bad Allowed",
+		"email":             "bad@test.com",
 		"allocated_ips":     []string{"10.252.1.50/32"},
 		"allowed_ips":       []string{"not-a-cidr"},
 		"extra_allowed_ips": []string{},
@@ -252,6 +254,7 @@ func TestAPICreateClient_InvalidExtraAllowedIPs(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "Bad Extra",
+		"email":             "bad@test.com",
 		"allocated_ips":     []string{"10.252.1.50/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{"not-a-cidr"},
@@ -268,6 +271,7 @@ func TestAPICreateClient_InvalidTelegramUserid(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "TG Bad",
+		"email":             "tg@test.com",
 		"telegram_userid":   "notanumber",
 		"allocated_ips":     []string{"10.252.1.50/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
@@ -285,6 +289,7 @@ func TestAPICreateClient_WithPresharedKeyDash(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "No PSK",
+		"email":             "nopsk@test.com",
 		"allocated_ips":     []string{"10.252.1.51/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -308,6 +313,7 @@ func TestAPICreateClient_DuplicateAllocatedIP(t *testing.T) {
 	// First, create a client
 	body1 := map[string]interface{}{
 		"name":              "First",
+		"email":             "first@test.com",
 		"allocated_ips":     []string{"10.252.1.60/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -322,6 +328,7 @@ func TestAPICreateClient_DuplicateAllocatedIP(t *testing.T) {
 	// Try to create another with same IP
 	body2 := map[string]interface{}{
 		"name":              "Second",
+		"email":             "second@test.com",
 		"allocated_ips":     []string{"10.252.1.60/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -341,7 +348,7 @@ func TestAPIUpdateClient_Success(t *testing.T) {
 	now := time.Now().UTC()
 
 	env.db.SaveClient(model.Client{
-		ID: id, Name: "Original", PublicKey: "origpub", PrivateKey: "origpriv",
+		ID: id, Name: "Original", Email: "original@test.com", PublicKey: "origpub", PrivateKey: "origpriv",
 		AllocatedIPs: []string{"10.252.1.70/32"}, AllowedIPs: []string{"0.0.0.0/0"},
 		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
 		Enabled: true, CreatedAt: now, UpdatedAt: now,
@@ -349,7 +356,7 @@ func TestAPIUpdateClient_Success(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "Updated",
-		"email":             "updated@test.com",
+		"email":             "try-change@test.com",
 		"allocated_ips":     []string{"10.252.1.70/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -369,7 +376,8 @@ func TestAPIUpdateClient_Success(t *testing.T) {
 	var client model.Client
 	parseJSON(t, rec, &client)
 	assert.Equal(t, "Updated", client.Name)
-	assert.Equal(t, "updated@test.com", client.Email)
+	// email is immutable — original preserved, attempted change ignored
+	assert.Equal(t, "original@test.com", client.Email)
 }
 
 func TestAPIUpdateClient_InvalidID(t *testing.T) {
@@ -482,6 +490,7 @@ func TestAPIDownloadClientConfig_Success(t *testing.T) {
 	err := APIDownloadClientConfig(env.db)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "# CONFIDENTIAL")
 	assert.Contains(t, rec.Body.String(), "[Interface]")
 	assert.Contains(t, rec.Body.String(), "PrivateKey = dlpriv")
 	assert.Contains(t, rec.Header().Get(echo.HeaderContentDisposition), "Download Client.conf")
@@ -768,55 +777,6 @@ func TestAPIEmailClient_NoPrivateKey(t *testing.T) {
 
 // --- APIUpdateClient extra edge cases ---
 
-// --- APITelegramClient Tests ---
-
-func TestAPITelegramClient_InvalidID(t *testing.T) {
-	env := setupTestEnv(t)
-
-	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients/bad/telegram", nil)
-	c := env.echo.NewContext(req, rec)
-	c.SetParamNames("id")
-	c.SetParamValues("bad!")
-	err := APITelegramClient(env.db)(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestAPITelegramClient_NotFound(t *testing.T) {
-	env := setupTestEnv(t)
-	id := xid.New().String()
-
-	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients/"+id+"/telegram", nil)
-	c := env.echo.NewContext(req, rec)
-	c.SetParamNames("id")
-	c.SetParamValues(id)
-	err := APITelegramClient(env.db)(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAPITelegramClient_InvalidTgUserid(t *testing.T) {
-	env := setupTestEnv(t)
-	id := xid.New().String()
-	now := time.Now().UTC()
-
-	env.db.SaveClient(model.Client{
-		ID: id, Name: "TG Client", PublicKey: "tgpub", PrivateKey: "tgpriv",
-		TgUserid:     "not-a-number",
-		AllocatedIPs: []string{"10.252.1.93/32"}, AllowedIPs: []string{"0.0.0.0/0"},
-		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
-		Enabled: true, CreatedAt: now, UpdatedAt: now,
-	})
-
-	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients/"+id+"/telegram", nil)
-	c := env.echo.NewContext(req, rec)
-	c.SetParamNames("id")
-	c.SetParamValues(id)
-	err := APITelegramClient(env.db)(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestAPIUpdateClient_InvalidExtraAllowedIPs(t *testing.T) {
 	env := setupTestEnv(t)
 	id := xid.New().String()
@@ -853,6 +813,7 @@ func TestAPICreateClient_WithProvidedPublicKey(t *testing.T) {
 	// Generate a real key pair for a valid public key
 	body := map[string]interface{}{
 		"name":              "External Key Client",
+		"email":             "ext@test.com",
 		"allocated_ips":     []string{"10.252.1.52/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -872,6 +833,7 @@ func TestAPICreateClient_WithInvalidPresharedKey(t *testing.T) {
 
 	body := map[string]interface{}{
 		"name":              "Bad PSK",
+		"email":             "psk@test.com",
 		"allocated_ips":     []string{"10.252.1.53/32"},
 		"allowed_ips":       []string{"0.0.0.0/0"},
 		"extra_allowed_ips": []string{},
@@ -1055,6 +1017,122 @@ func TestAPIUpdateClient_InvalidAllocatedIPs(t *testing.T) {
 	err := APIUpdateClient(env.db)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// --- APICreateClient email validation ---
+
+func TestAPICreateClient_MissingEmail(t *testing.T) {
+	env := setupTestEnv(t)
+
+	body := map[string]interface{}{
+		"name":              "No Email",
+		"allocated_ips":     []string{"10.252.1.54/32"},
+		"allowed_ips":       []string{"0.0.0.0/0"},
+		"extra_allowed_ips": []string{},
+		"enabled":           true,
+	}
+	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
+	c := env.echo.NewContext(req, rec)
+	err := APICreateClient(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Email is required")
+}
+
+// --- APIListClients search and status filtering ---
+
+func TestAPIListClients_SearchFilter(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+
+	env.db.SaveClient(model.Client{
+		ID: xid.New().String(), Name: "Alice Laptop", Email: "alice@test.com",
+		AllocatedIPs: []string{"10.252.1.30/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	env.db.SaveClient(model.Client{
+		ID: xid.New().String(), Name: "Bob Phone", Email: "bob@test.com",
+		AllocatedIPs: []string{"10.252.1.31/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: false, CreatedAt: now, UpdatedAt: now,
+	})
+
+	// search by name
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/clients?search=alice", nil)
+	c := env.echo.NewContext(req, rec)
+	c.SetParamNames()
+	c.QueryParams().Set("search", "alice")
+	err := APIListClients(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var clients []model.ClientData
+	parseJSON(t, rec, &clients)
+	assert.Len(t, clients, 1)
+	assert.Equal(t, "Alice Laptop", clients[0].Client.Name)
+}
+
+func TestAPIListClients_StatusFilter(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+
+	env.db.SaveClient(model.Client{
+		ID: xid.New().String(), Name: "Enabled Client", Email: "en@test.com",
+		AllocatedIPs: []string{"10.252.1.32/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	env.db.SaveClient(model.Client{
+		ID: xid.New().String(), Name: "Disabled Client", Email: "dis@test.com",
+		AllocatedIPs: []string{"10.252.1.33/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: false, CreatedAt: now, UpdatedAt: now,
+	})
+
+	// filter enabled only
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/clients?status=enabled", nil)
+	c := env.echo.NewContext(req, rec)
+	c.QueryParams().Set("status", "enabled")
+	err := APIListClients(env.db)(c)
+	require.NoError(t, err)
+	var enabledClients []model.ClientData
+	parseJSON(t, rec, &enabledClients)
+	assert.Len(t, enabledClients, 1)
+	assert.Equal(t, "Enabled Client", enabledClients[0].Client.Name)
+
+	// filter disabled only
+	req2, rec2 := jsonRequest(http.MethodGet, "/api/v1/clients?status=disabled", nil)
+	c2 := env.echo.NewContext(req2, rec2)
+	c2.QueryParams().Set("status", "disabled")
+	err = APIListClients(env.db)(c2)
+	require.NoError(t, err)
+	var disabledClients []model.ClientData
+	parseJSON(t, rec2, &disabledClients)
+	assert.Len(t, disabledClients, 1)
+	assert.Equal(t, "Disabled Client", disabledClients[0].Client.Name)
+}
+
+// --- APIExportClients ---
+
+func TestAPIExportClients(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+
+	env.db.SaveClient(model.Client{
+		ID: xid.New().String(), Name: "Export Client", Email: "export@test.com",
+		AllocatedIPs: []string{"10.252.1.40/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/clients/export", nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIExportClients(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Disposition"), "clients.xlsx")
+	assert.Contains(t, rec.Header().Get("Content-Type"), "spreadsheetml.sheet")
+	assert.True(t, rec.Body.Len() > 0)
 }
 
 // --- APIServerStatus ---

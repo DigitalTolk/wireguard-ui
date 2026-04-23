@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -159,18 +158,6 @@ func (o *SqliteDB) Init() error {
 			util.DBUsersToCRC32[user.Username] = util.GetDBUserCRC32(user)
 		}
 		util.DBUsersToCRC32Mutex.Unlock()
-	}
-
-	clients, err := o.GetClients(false)
-	if err == nil {
-		for _, cl := range clients {
-			client := cl.Client
-			if client.Enabled && len(client.TgUserid) > 0 {
-				if userid, err := strconv.ParseInt(client.TgUserid, 10, 64); err == nil {
-					util.UpdateTgToClientID(userid, client.ID)
-				}
-			}
-		}
 	}
 
 	return nil
@@ -402,25 +389,11 @@ func (o *SqliteDB) SaveClient(client model.Client) error {
 		client.Endpoint, client.AdditionalNotes, client.UseServerDNS, client.Enabled,
 		client.CreatedAt, client.UpdatedAt,
 	)
-	if err != nil {
-		util.RemoveTgToClientID(client.ID)
-		return err
-	}
-
-	// update telegram cache
-	if client.Enabled && len(client.TgUserid) > 0 {
-		if userid, err := strconv.ParseInt(client.TgUserid, 10, 64); err == nil {
-			util.UpdateTgToClientID(userid, client.ID)
-		}
-	} else {
-		util.RemoveTgToClientID(client.ID)
-	}
-	return nil
+	return err
 }
 
 // DeleteClient removes a client by ID
 func (o *SqliteDB) DeleteClient(clientID string) error {
-	util.RemoveTgToClientID(clientID)
 	_, err := o.db.Exec("DELETE FROM clients WHERE id = ?", clientID)
 	return err
 }

@@ -78,13 +78,34 @@ func readJSONFile(path string, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
+// legacy structs handle the old `,string` JSON tags from the original codebase
+type legacyServerInterface struct {
+	Addresses  []string  `json:"addresses"`
+	ListenPort int       `json:"listen_port,string"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	PostUp     string    `json:"post_up"`
+	PreDown    string    `json:"pre_down"`
+	PostDown   string    `json:"post_down"`
+}
+
+type legacyGlobalSetting struct {
+	EndpointAddress     string    `json:"endpoint_address"`
+	DNSServers          []string  `json:"dns_servers"`
+	MTU                 int       `json:"mtu,string"`
+	PersistentKeepalive int       `json:"persistent_keepalive,string"`
+	FirewallMark        string    `json:"firewall_mark"`
+	Table               string    `json:"table"`
+	ConfigFilePath      string    `json:"config_file_path"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
 func migrateServerInterface(db *SqliteDB, jsonDBPath string) error {
 	filePath := filepath.Join(jsonDBPath, "server", "interfaces.json")
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil
 	}
 
-	var iface model.ServerInterface
+	var iface legacyServerInterface
 	if err := readJSONFile(filePath, &iface); err != nil {
 		return err
 	}
@@ -130,7 +151,7 @@ func migrateGlobalSettings(db *SqliteDB, jsonDBPath string) error {
 		return nil
 	}
 
-	var gs model.GlobalSetting
+	var gs legacyGlobalSetting
 	if err := readJSONFile(filePath, &gs); err != nil {
 		return err
 	}

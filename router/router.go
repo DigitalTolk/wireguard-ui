@@ -26,22 +26,31 @@ func New(secret [64]byte) *echo.Echo {
 	if err != nil {
 		log.Fatal(err)
 	}
-	logConfig := middleware.DefaultLoggerConfig
-	logConfig.Skipper = func(c echo.Context) bool {
-		resp := c.Response()
-		if resp.Status >= 500 && lvl > log.ERROR {
-			return true
-		} else if resp.Status >= 400 && lvl > log.WARN {
-			return true
-		} else if lvl > log.DEBUG {
-			return true
-		}
-		return false
-	}
-
 	e.Logger.SetLevel(lvl)
 	e.Pre(middleware.RemoveTrailingSlash())
-	e.Use(middleware.LoggerWithConfig(logConfig))
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogURI:      true,
+		LogStatus:   true,
+		LogMethod:   true,
+		LogLatency:  true,
+		LogRemoteIP: true,
+		LogError:    true,
+		Skipper: func(c echo.Context) bool {
+			resp := c.Response()
+			if resp.Status >= 500 && lvl > log.ERROR {
+				return true
+			} else if resp.Status >= 400 && lvl > log.WARN {
+				return true
+			} else if lvl > log.DEBUG {
+				return true
+			}
+			return false
+		},
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			e.Logger.Infof("%s %s %d %v", v.Method, v.URI, v.Status, v.Latency)
+			return nil
+		},
+	}))
 	e.HideBanner = true
 	e.HidePort = lvl > log.INFO
 	e.Validator = NewValidator()

@@ -148,3 +148,51 @@ func TestAPIUpdateSettings_InvalidBody(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// Regression: frontend sends JSON numbers for mtu/keepalive/listen_port, not strings
+func TestAPIUpdateSettings_FrontendJSON(t *testing.T) {
+	env := setupTestEnv(t)
+
+	body := map[string]interface{}{
+		"endpoint_address":     "vpn.test.com",
+		"dns_servers":          []string{"1.1.1.1", "8.8.8.8"},
+		"mtu":                  1420,
+		"persistent_keepalive": 25,
+		"firewall_mark":        "0xca6c",
+		"table":                "auto",
+		"config_file_path":     "/etc/wireguard/wg0.conf",
+	}
+
+	req, rec := jsonRequest(http.MethodPut, "/api/v1/settings", body)
+	c := env.echo.NewContext(req, rec)
+	err := APIUpdateSettings(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	gs, _ := env.db.GetGlobalSettings()
+	assert.Equal(t, "vpn.test.com", gs.EndpointAddress)
+	assert.Equal(t, 1420, gs.MTU)
+	assert.Equal(t, 25, gs.PersistentKeepalive)
+	assert.Equal(t, []string{"1.1.1.1", "8.8.8.8"}, gs.DNSServers)
+}
+
+func TestAPIUpdateServerInterface_FrontendJSON(t *testing.T) {
+	env := setupTestEnv(t)
+
+	body := map[string]interface{}{
+		"addresses":   []string{"10.0.0.0/24"},
+		"listen_port": 51821,
+		"post_up":     "iptables -A FORWARD",
+		"post_down":   "iptables -D FORWARD",
+	}
+
+	req, rec := jsonRequest(http.MethodPut, "/api/v1/server/interface", body)
+	c := env.echo.NewContext(req, rec)
+	err := APIUpdateServerInterface(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	server, _ := env.db.GetServer()
+	assert.Equal(t, 51821, server.Interface.ListenPort)
+	assert.Equal(t, []string{"10.0.0.0/24"}, server.Interface.Addresses)
+}

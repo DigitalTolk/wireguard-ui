@@ -1,6 +1,6 @@
 APP_NAME    := wg-ui
 GOBIN       := $(shell go env GOPATH)/bin
-GO_PACKAGES := $(shell go list ./... | grep -v frontend | grep -v 'wireguard-ui$$' | grep -v telegram)
+GO_PACKAGES := $(shell go list ./... | grep -v 'wireguard-ui$$' | grep -v node_modules)
 
 VERSION     ?= dev
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
@@ -17,7 +17,7 @@ help: ## Show this help
 build: build-frontend build-backend ## Build everything (frontend + Go binary)
 
 build-frontend: ## Build the React frontend
-	cd frontend && npm ci && npm run build
+	npm ci && npm run build
 
 build-backend: ## Build the Go binary
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(APP_NAME) .
@@ -36,7 +36,7 @@ test-go: ## Run Go tests with coverage
 test-frontend: ## Run frontend tests with coverage
 	@echo ""
 	@echo "=== Frontend Tests ==="
-	@cd frontend && npx vitest run --coverage 2>&1 | grep -E "Tests|Statements|Lines"
+	@npx vitest run --coverage 2>&1 | grep -E "Tests|Statements|Lines"
 
 test-verbose: ## Run all Go tests with verbose output
 	go test $(GO_PACKAGES) -v -count=1 -timeout 180s
@@ -61,7 +61,7 @@ lint-go: ## Run Go linters (golangci-lint)
 	$(GOBIN)/golangci-lint run --timeout 5m
 
 lint-frontend: ## Run frontend linter (eslint)
-	cd frontend && npm run lint
+	npm run lint
 
 ## ---- Format & Vet ----
 
@@ -78,7 +78,7 @@ dev: ## Start the Go app for development
 	go run -ldflags="$(LDFLAGS)" .
 
 dev-frontend: ## Start the frontend dev server with hot reload
-	cd frontend && npm run dev
+	npm run dev
 
 ## ---- Dependencies ----
 
@@ -87,7 +87,7 @@ deps: ## Install/update Go dependencies
 	go mod download
 
 deps-frontend: ## Install frontend dependencies
-	cd frontend && npm ci
+	npm ci
 
 ## ---- Clean ----
 

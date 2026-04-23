@@ -80,7 +80,7 @@ func (l *Logger) LogWithUser(username, action, resourceType, resourceID, ipAddre
 const maxPerPage = 200
 const maxExportRows = 100000
 
-func buildWhereClause(from, to, actor, action string) (string, []interface{}) {
+func buildWhereClause(from, to, actor, action, search string) (string, []interface{}) {
 	where := "WHERE 1=1"
 	args := make([]interface{}, 0)
 	if from != "" {
@@ -94,6 +94,11 @@ func buildWhereClause(from, to, actor, action string) (string, []interface{}) {
 	if actor != "" {
 		where += " AND actor = ?"
 		args = append(args, actor)
+	}
+	if search != "" {
+		where += " AND (resource_id LIKE ? OR details LIKE ? OR actor LIKE ?)"
+		q := "%" + search + "%"
+		args = append(args, q, q, q)
 	}
 	if action != "" {
 		where += " AND action = ?"
@@ -115,7 +120,7 @@ func scanLogEntries(rows *sql.Rows) ([]LogEntry, error) {
 }
 
 // Query returns audit log entries with optional filtering
-func (l *Logger) Query(from, to string, actor, action string, page, perPage int) ([]LogEntry, int, error) {
+func (l *Logger) Query(from, to, actor, action, search string, page, perPage int) ([]LogEntry, int, error) {
 	if perPage <= 0 {
 		perPage = 50
 	}
@@ -126,7 +131,7 @@ func (l *Logger) Query(from, to string, actor, action string, page, perPage int)
 		page = 1
 	}
 
-	where, args := buildWhereClause(from, to, actor, action)
+	where, args := buildWhereClause(from, to, actor, action, search)
 
 	var total int
 	if err := l.db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", where), args...).Scan(&total); err != nil {
@@ -148,8 +153,8 @@ func (l *Logger) Query(from, to string, actor, action string, page, perPage int)
 }
 
 // QueryAll returns audit log entries matching filters (for export), capped at maxExportRows
-func (l *Logger) QueryAll(from, to string, actor, action string) ([]LogEntry, error) {
-	where, args := buildWhereClause(from, to, actor, action)
+func (l *Logger) QueryAll(from, to, actor, action, search string) ([]LogEntry, error) {
+	where, args := buildWhereClause(from, to, actor, action, search)
 
 	query := fmt.Sprintf("SELECT id, timestamp, actor, action, resource_type, resource_id, details, ip_address FROM audit_logs %s ORDER BY timestamp DESC LIMIT ?", where)
 	args = append(args, maxExportRows)
@@ -161,4 +166,34 @@ func (l *Logger) QueryAll(from, to string, actor, action string) ([]LogEntry, er
 	defer rows.Close()
 
 	return scanLogEntries(rows)
+}
+
+// DistinctFilters returns distinct actors and actions for filter dropdowns
+func (l *Logger) DistinctFilters() ([]string, []string, error) {
+	actors, err := l.distinctColumn("actor")
+	if err != nil {
+		return nil, nil, err
+	}
+	actions, err := l.distinctColumn("action")
+	if err != nil {
+		return nil, nil, err
+	}
+	return actors, actions, nil
+}
+
+func (l *Logger) distinctColumn(column string) ([]string, error) {
+	rows, err := l.db.Query("SELECT DISTINCT " + column + " FROM audit_logs ORDER BY " + column)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		values = append(values, v)
+	}
+	return values, rows.Err()
 }

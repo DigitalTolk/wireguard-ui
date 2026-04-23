@@ -87,15 +87,17 @@ func Favicon() echo.HandlerFunc {
 		if favicon, ok := os.LookupEnv(util.FaviconFilePathEnvVar); ok {
 			return c.File(favicon)
 		}
-		return c.Redirect(http.StatusFound, util.BasePath+"/assets/favicon.ico")
+		return c.Redirect(http.StatusFound, util.BasePath+"/static/favicon.svg")
 	}
 }
 
 // APIAppInfo returns app metadata for the frontend
-func APIAppInfo() echo.HandlerFunc {
+func APIAppInfo(appVersion, gitCommit string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"base_path":       util.BasePath,
+			"app_version":     appVersion,
+			"git_commit":      gitCommit,
 			"client_defaults": util.ClientDefaultsFromEnv(),
 		})
 	}

@@ -18,10 +18,11 @@ func APIListAuditLogs(auditLog *audit.Logger) echo.HandlerFunc {
 		to := c.QueryParam("to")
 		actor := c.QueryParam("actor")
 		action := c.QueryParam("action")
+		search := c.QueryParam("search")
 		page, _ := strconv.Atoi(c.QueryParam("page"))
 		perPage, _ := strconv.Atoi(c.QueryParam("per_page"))
 
-		entries, total, err := auditLog.Query(from, to, actor, action, page, perPage)
+		entries, total, err := auditLog.Query(from, to, actor, action, search, page, perPage)
 		if err != nil {
 			return apiInternalError(c, "Cannot query audit logs")
 		}
@@ -46,8 +47,9 @@ func APIExportAuditLogs(auditLog *audit.Logger) echo.HandlerFunc {
 		to := c.QueryParam("to")
 		actor := c.QueryParam("actor")
 		action := c.QueryParam("action")
+		search := c.QueryParam("search")
 
-		entries, err := auditLog.QueryAll(from, to, actor, action)
+		entries, err := auditLog.QueryAll(from, to, actor, action, search)
 		if err != nil {
 			return apiInternalError(c, "Cannot query audit logs")
 		}
@@ -91,5 +93,19 @@ func APIExportAuditLogs(auditLog *audit.Logger) echo.HandlerFunc {
 		c.Response().Header().Set("Content-Disposition", "attachment; filename=audit-logs.xlsx")
 		c.Response().Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		return f.Write(c.Response())
+	}
+}
+
+// APIAuditLogFilters returns distinct actors and actions for filter dropdowns
+func APIAuditLogFilters(auditLog *audit.Logger) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		actors, actions, err := auditLog.DistinctFilters()
+		if err != nil {
+			return apiInternalError(c, "Cannot query audit log filters")
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"actors":  actors,
+			"actions": actions,
+		})
 	}
 }

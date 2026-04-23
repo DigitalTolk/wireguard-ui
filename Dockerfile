@@ -1,9 +1,11 @@
 # Stage 1: Build React SPA
-FROM node:20-alpine AS frontend
-WORKDIR /src/frontend
-COPY frontend/package.json frontend/package-lock.json ./
+FROM node:24-alpine AS frontend
+WORKDIR /src
+COPY package.json package-lock.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY src/ ./src/
+COPY public/ ./public/
+COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts components.json ./
 RUN npm run build
 # Output: /src/assets/
 

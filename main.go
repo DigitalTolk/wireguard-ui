@@ -23,7 +23,6 @@ import (
 	"github.com/DigitalTolk/wireguard-ui/router"
 	"github.com/DigitalTolk/wireguard-ui/store"
 	"github.com/DigitalTolk/wireguard-ui/store/sqlitedb"
-	"github.com/DigitalTolk/wireguard-ui/telegram"
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
 
@@ -33,27 +32,24 @@ var (
 	gitRef     = "N/A"
 	buildTime  = time.Now().UTC().Format("01-02-2006 15:04:05")
 
-	flagDisableLogin             = false
-	flagBindAddress              = "0.0.0.0:5000"
-	flagSmtpHostname             = "127.0.0.1"
-	flagSmtpPort                 = 25
-	flagSmtpUsername             string
-	flagSmtpPassword             string
-	flagSmtpAuthType             = "NONE"
-	flagSmtpNoTLSCheck           = false
-	flagSmtpEncryption           = "STARTTLS"
-	flagSmtpHelo                 = "localhost"
-	flagSendgridApiKey           string
-	flagEmailFrom                string
-	flagEmailFromName            = "WireGuard UI"
-	flagTelegramToken            string
-	flagTelegramAllowConfRequest = false
-	flagTelegramFloodWait        = 60
-	flagSessionSecret            = util.RandomString(32)
-	flagSessionMaxDuration       = 90
-	flagWgConfTemplate           string
-	flagBasePath                 string
-	flagSubnetRanges             string
+	flagDisableLogin       = false
+	flagBindAddress        = "0.0.0.0:5000"
+	flagSmtpHostname       = "127.0.0.1"
+	flagSmtpPort           = 25
+	flagSmtpUsername       string
+	flagSmtpPassword       string
+	flagSmtpAuthType       = "NONE"
+	flagSmtpNoTLSCheck     = false
+	flagSmtpEncryption     = "STARTTLS"
+	flagSmtpHelo           = "localhost"
+	flagSendgridApiKey     string
+	flagEmailFrom          string
+	flagEmailFromName      = "WireGuard UI"
+	flagSessionSecret      = util.RandomString(32)
+	flagSessionMaxDuration = 90
+	flagWgConfTemplate     string
+	flagBasePath           string
+	flagSubnetRanges       string
 )
 
 const (
@@ -87,9 +83,6 @@ func init() {
 	flag.StringVar(&flagSmtpAuthType, "smtp-auth-type", util.LookupEnvOrString("SMTP_AUTH_TYPE", flagSmtpAuthType), "SMTP Auth Type : PLAIN, LOGIN or NONE.")
 	flag.StringVar(&flagEmailFrom, "email-from", util.LookupEnvOrString("EMAIL_FROM_ADDRESS", flagEmailFrom), "'From' email address.")
 	flag.StringVar(&flagEmailFromName, "email-from-name", util.LookupEnvOrString("EMAIL_FROM_NAME", flagEmailFromName), "'From' email name.")
-	flag.StringVar(&flagTelegramToken, "telegram-token", util.LookupEnvOrString("TELEGRAM_TOKEN", flagTelegramToken), "Telegram bot token for distributing configs to clients.")
-	flag.BoolVar(&flagTelegramAllowConfRequest, "telegram-allow-conf-request", util.LookupEnvOrBool("TELEGRAM_ALLOW_CONF_REQUEST", flagTelegramAllowConfRequest), "Allow users to get configs from the bot by sending a message.")
-	flag.IntVar(&flagTelegramFloodWait, "telegram-flood-wait", util.LookupEnvOrInt("TELEGRAM_FLOOD_WAIT", flagTelegramFloodWait), "Time in minutes before the next conf request is processed.")
 	flag.StringVar(&flagWgConfTemplate, "wg-conf-template", util.LookupEnvOrString("WG_CONF_TEMPLATE", flagWgConfTemplate), "Path to custom wg.conf template.")
 	flag.StringVar(&flagBasePath, "base-path", util.LookupEnvOrString("BASE_PATH", flagBasePath), "The base path of the URL")
 	flag.StringVar(&flagSubnetRanges, "subnet-ranges", util.LookupEnvOrString("SUBNET_RANGES", flagSubnetRanges), "IP ranges to choose from when assigning an IP for a client.")
@@ -153,11 +146,6 @@ func init() {
 	util.OIDCAdminGroups = util.LookupEnvOrStrings(util.OIDCAdminGroupsEnvVar, []string{})
 
 	lvl, _ := util.ParseLogLevel(util.LookupEnvOrString(util.LogLevel, "INFO"))
-
-	telegram.Token = flagTelegramToken
-	telegram.AllowConfRequest = flagTelegramAllowConfRequest
-	telegram.FloodWait = flagTelegramFloodWait
-	telegram.LogLevel = lvl
 
 	if lvl <= log.INFO {
 		fmt.Println("Wireguard UI")
@@ -237,7 +225,7 @@ func main() {
 
 	// API v1 routes
 	apiV1 := app.Group(util.BasePath+"/api/v1", handler.WithAuditLogger(auditLog))
-	router.RegisterAPIv1(apiV1, db, sendmail, tmplDir, defaultEmailSubject, defaultEmailContent, auditLog)
+	router.RegisterAPIv1(apiV1, db, sendmail, tmplDir, defaultEmailSubject, defaultEmailContent, appVersion, gitCommit, auditLog)
 
 	// OIDC SSO routes
 	oidcProvider, err := handler.NewOIDCProvider()
@@ -273,14 +261,17 @@ func main() {
 	if util.BasePath == "" {
 		app.GET("/", serveIndex)
 	}
-	app.GET(util.BasePath+"/*", serveIndex)
-
-	// Telegram bot
-	initDeps := telegram.TgBotInitDependencies{
-		DB:                             db,
-		SendRequestedConfigsToTelegram: util.SendRequestedConfigsToTelegram,
-	}
-	initTelegram(initDeps)
+	wrappedAssetHandler := echo.WrapHandler(http.StripPrefix(util.BasePath+"/", assetHandler))
+	app.GET(util.BasePath+"/*", func(c echo.Context) error {
+		reqPath := strings.TrimPrefix(c.Request().URL.Path, util.BasePath+"/")
+		if reqPath != "" {
+			if f, err := assetsDir.Open(reqPath); err == nil {
+				f.Close()
+				return wrappedAssetHandler(c)
+			}
+		}
+		return serveIndex(c)
+	})
 
 	// Start server
 	if strings.HasPrefix(util.BindAddress, "unix://") {
@@ -327,15 +318,4 @@ func initServerConfig(db store.IStore, tmplDir fs.FS) {
 	if err != nil {
 		log.Fatalf("Cannot create server config: %v", err)
 	}
-}
-
-func initTelegram(initDeps telegram.TgBotInitDependencies) {
-	go func() {
-		for {
-			err := telegram.Start(initDeps)
-			if err == nil {
-				break
-			}
-		}
-	}()
 }

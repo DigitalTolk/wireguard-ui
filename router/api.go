@@ -12,15 +12,16 @@ import (
 )
 
 // RegisterAPIv1 registers all API v1 routes under the given group
-func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplDir fs.FS, emailSubject, emailContent string, auditLog *audit.Logger) {
+func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplDir fs.FS, emailSubject, emailContent, appVersion, gitCommit string, auditLog *audit.Logger) {
 	// Auth
 	g.GET("/auth/me", handler.APIGetMe(db), handler.APIAuth)
 	g.POST("/auth/logout", handler.APILogout(), handler.APIAuth)
-	g.GET("/auth/info", handler.APIAppInfo())
+	g.GET("/auth/info", handler.APIAppInfo(appVersion, gitCommit))
 
 	// Clients
 	clients := g.Group("/clients", handler.APIAuth)
 	clients.GET("", handler.APIListClients(db))
+	clients.GET("/export", handler.APIExportClients(db))
 	clients.GET("/:id", handler.APIGetClient(db))
 	clients.POST("", handler.APICreateClient(db), handler.ContentTypeJson)
 	clients.PUT("/:id", handler.APIUpdateClient(db), handler.ContentTypeJson)
@@ -29,7 +30,6 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplD
 	clients.GET("/:id/config", handler.APIDownloadClientConfig(db))
 	clients.GET("/:id/qrcode", handler.APIGetClientQRCode(db))
 	clients.POST("/:id/email", handler.APIEmailClient(db, mailer, emailSubject, emailContent), handler.ContentTypeJson)
-	clients.POST("/:id/telegram", handler.APITelegramClient(db), handler.ContentTypeJson)
 
 	// Server (admin only)
 	server := g.Group("/server", handler.APIAuth, handler.APIAdmin)
@@ -45,12 +45,10 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplD
 	settings.PUT("", handler.APIUpdateSettings(db), handler.ContentTypeJson)
 
 	// Users (admin only for list/create/delete)
-	users := g.Group("/users", handler.APIAuth)
-	users.GET("", handler.APIListUsers(db), handler.APIAdmin)
+	// Users (read-only — managed via SSO)
+	users := g.Group("/users", handler.APIAuth, handler.APIAdmin)
+	users.GET("", handler.APIListUsers(db))
 	users.GET("/:username", handler.APIGetUser(db))
-	users.POST("", handler.APICreateUser(db), handler.APIAdmin, handler.ContentTypeJson)
-	users.PUT("/:username", handler.APIUpdateUser(db), handler.ContentTypeJson)
-	users.DELETE("/:username", handler.APIDeleteUser(db), handler.APIAdmin)
 
 	// Wake-on-LAN
 	wolGroup := g.Group("/wol-hosts", handler.APIAuth)
@@ -71,5 +69,6 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplD
 	// Audit logs (admin only)
 	auditGroup := g.Group("/audit-logs", handler.APIAuth, handler.APIAdmin)
 	auditGroup.GET("", handler.APIListAuditLogs(auditLog))
+	auditGroup.GET("/filters", handler.APIAuditLogFilters(auditLog))
 	auditGroup.GET("/export", handler.APIExportAuditLogs(auditLog))
 }

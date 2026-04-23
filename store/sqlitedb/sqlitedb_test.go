@@ -576,66 +576,6 @@ func TestGetClientByID_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// --- SaveClient with Telegram cache ---
-
-func TestSaveClient_WithTelegramUserid(t *testing.T) {
-	db := initTestDB(t)
-	now := time.Now().UTC()
-
-	// Reset telegram cache
-	util.TgUseridToClientID = map[int64][]string{}
-
-	client := model.Client{
-		ID:              "tg1",
-		Name:            "TG Client",
-		TgUserid:        "12345",
-		AllocatedIPs:    []string{"10.252.1.20/32"},
-		AllowedIPs:      []string{},
-		ExtraAllowedIPs: []string{},
-		SubnetRanges:    []string{},
-		Enabled:         true,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-
-	err := db.SaveClient(client)
-	require.NoError(t, err)
-
-	// Telegram cache should be updated
-	assert.Contains(t, util.TgUseridToClientID[12345], "tg1")
-}
-
-func TestSaveClient_DisabledClearsTelegram(t *testing.T) {
-	db := initTestDB(t)
-	now := time.Now().UTC()
-
-	util.TgUseridToClientID = map[int64][]string{}
-
-	// Save enabled client with telegram
-	client := model.Client{
-		ID:              "tg2",
-		Name:            "TG Client 2",
-		TgUserid:        "67890",
-		AllocatedIPs:    []string{"10.252.1.21/32"},
-		AllowedIPs:      []string{},
-		ExtraAllowedIPs: []string{},
-		SubnetRanges:    []string{},
-		Enabled:         true,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-	err := db.SaveClient(client)
-	require.NoError(t, err)
-	assert.Contains(t, util.TgUseridToClientID[67890], "tg2")
-
-	// Disable client - should remove from telegram cache
-	client.Enabled = false
-	err = db.SaveClient(client)
-	require.NoError(t, err)
-	_, hasKey := util.TgUseridToClientID[67890]
-	assert.False(t, hasKey)
-}
-
 // --- DB method ---
 
 func TestDB(t *testing.T) {

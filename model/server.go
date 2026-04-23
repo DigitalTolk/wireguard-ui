@@ -20,7 +20,7 @@ type ServerKeypair struct {
 // ServerInterface model
 type ServerInterface struct {
 	Addresses  []string  `json:"addresses"`
-	ListenPort int       `json:"listen_port,string"` // ,string to get listen_port string input as int
+	ListenPort int       `json:"listen_port"`
 	UpdatedAt  time.Time `json:"updated_at"`
 	PostUp     string    `json:"post_up"`
 	PreDown    string    `json:"pre_down"`

@@ -1,13 +1,12 @@
 # Dependencies
 node_modules
-frontend/node_modules
 
 # Build artifacts
 assets
 wg-ui
 wireguard-ui
 coverage.out
-frontend/coverage
+coverage
 
 # Docker
 Dockerfile*
