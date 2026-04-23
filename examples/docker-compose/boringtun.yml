@@ -1,12 +1,9 @@
-version: "3"
-
 services:
   boringtun:
     image: ghcr.io/ntkme/boringtun:edge
     command:
       - wg0
     container_name: boringtun
-    # use the network of the 'wireguard-ui' service. this enables to show active clients in the status page
     network_mode: service:wireguard-ui
     cap_add:
       - NET_ADMIN
@@ -20,12 +17,14 @@ services:
     cap_add:
       - NET_ADMIN
     environment:
+      - OIDC_ISSUER_URL=https://login.microsoftonline.com/{tenant-id}/v2.0
+      - OIDC_CLIENT_ID=your-client-id
+      - OIDC_CLIENT_SECRET=your-client-secret
+      - OIDC_REDIRECT_URL=https://vpn.example.com/api/v1/auth/oidc/callback
+      - SESSION_SECRET=change-me
       - SENDGRID_API_KEY
       - EMAIL_FROM_ADDRESS
       - EMAIL_FROM_NAME
-      - SESSION_SECRET
-      - WGUI_USERNAME=admin
-      - WGUI_PASSWORD=admin
       - WG_CONF_TEMPLATE
       - WGUI_MANAGE_START=true
       - WGUI_MANAGE_RESTART=true
@@ -37,7 +36,6 @@ services:
       - ./db:/app/db
       - ./config:/etc/wireguard
     ports:
-      # port for wireguard-ui
       - "5000:5000"
-      # port of the wireguard server. this must be set here as the `boringtun` container joins the network of this container and hasn't its own network over which it could publish the ports
       - "51820:51820/udp"
+    restart: unless-stopped

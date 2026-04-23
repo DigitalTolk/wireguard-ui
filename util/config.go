@@ -15,7 +15,6 @@ var (
 	SmtpPort           int
 	SmtpUsername       string
 	SmtpPassword       string
-	SmtpNoTLSCheck     bool
 	SmtpEncryption     string
 	SmtpAuthType       string
 	SmtpHelo           string
@@ -40,9 +39,6 @@ var (
 )
 
 const (
-	DefaultUsername                        = "admin"
-	DefaultPassword                        = "admin"
-	DefaultIsAdmin                         = true
 	DefaultServerAddress                   = "10.252.1.0/24"
 	DefaultServerPort                      = 51820
 	DefaultDNS                             = "1.1.1.1"
@@ -51,11 +47,6 @@ const (
 	DefaultFirewallMark                    = "0xca6c" // i.e. 51820
 	DefaultTable                           = "auto"
 	DefaultConfigFilePath                  = "/etc/wireguard/wg0.conf"
-	UsernameEnvVar                         = "WGUI_USERNAME"
-	PasswordEnvVar                         = "WGUI_PASSWORD"
-	PasswordFileEnvVar                     = "WGUI_PASSWORD_FILE"
-	PasswordHashEnvVar                     = "WGUI_PASSWORD_HASH"
-	PasswordHashFileEnvVar                 = "WGUI_PASSWORD_HASH_FILE"
 	FaviconFilePathEnvVar                  = "WGUI_FAVICON_FILE_PATH"
 	EndpointAddressEnvVar                  = "WGUI_ENDPOINT_ADDRESS"
 	DNSEnvVar                              = "WGUI_DNS"

@@ -134,23 +134,7 @@ func (o *SqliteDB) Init() error {
 		o.db.Exec(`INSERT INTO hashes (id, client, server) VALUES (1, 'none', 'none')`)
 	}
 
-	// default user
-	var userCount int
-	o.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
-	if userCount == 0 {
-		username := util.LookupEnvOrString(util.UsernameEnvVar, util.DefaultUsername)
-		now := time.Now().UTC()
-
-		_, err := o.db.Exec(
-			`INSERT INTO users (username, admin, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-			username, true, now, now,
-		)
-		if err != nil {
-			return fmt.Errorf("cannot create default user: %w", err)
-		}
-	}
-
-	// init caches
+	// init caches (first OIDC login auto-provisions admin user)
 	users, err := o.GetUsers()
 	if err == nil {
 		util.DBUsersToCRC32Mutex.Lock()

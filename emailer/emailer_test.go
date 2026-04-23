@@ -80,14 +80,13 @@ func TestAddressField_WithoutName(t *testing.T) {
 // --- NewSmtpMail tests ---
 
 func TestNewSmtpMail(t *testing.T) {
-	s := NewSmtpMail("smtp.example.com", 587, "user", "pass", "helo.example.com", true, "PLAIN", "Sender", "sender@example.com", "TLS")
+	s := NewSmtpMail("smtp.example.com", 587, "user", "pass", "helo.example.com", "PLAIN", "Sender", "sender@example.com", "TLS")
 
 	assert.Equal(t, "smtp.example.com", s.hostname)
 	assert.Equal(t, 587, s.port)
 	assert.Equal(t, "user", s.username)
 	assert.Equal(t, "pass", s.password)
 	assert.Equal(t, "helo.example.com", s.smtpHelo)
-	assert.True(t, s.noTLSCheck)
 	assert.Equal(t, mail.AuthPlain, s.authType)
 	assert.Equal(t, mail.EncryptionTLS, s.encryption)
 	assert.Equal(t, "Sender", s.fromName)
@@ -95,11 +94,10 @@ func TestNewSmtpMail(t *testing.T) {
 }
 
 func TestNewSmtpMail_Defaults(t *testing.T) {
-	s := NewSmtpMail("host", 25, "", "", "", false, "", "", "from@test.com", "")
+	s := NewSmtpMail("host", 25, "", "", "", "", "", "from@test.com", "")
 
 	assert.Equal(t, mail.AuthNone, s.authType)
 	assert.Equal(t, mail.EncryptionSTARTTLS, s.encryption)
-	assert.False(t, s.noTLSCheck)
 }
 
 // --- NewSendgridApiMail tests ---
@@ -123,14 +121,14 @@ func TestNewSendgridApiMail_Empty(t *testing.T) {
 // --- SmtpMail.Send tests (connection error path) ---
 
 func TestSmtpMail_Send_ConnectionError(t *testing.T) {
-	s := NewSmtpMail("127.0.0.1", 1, "user", "pass", "", false, "PLAIN", "Sender", "from@test.com", "NONE")
+	s := NewSmtpMail("127.0.0.1", 1, "user", "pass", "", "PLAIN", "Sender", "from@test.com", "NONE")
 
 	err := s.Send("Recipient", "to@test.com", "Subject", "<p>Body</p>", nil)
 	assert.Error(t, err, "Send should fail when SMTP server is unreachable")
 }
 
-func TestSmtpMail_Send_ConnectionError_WithTLSCheck(t *testing.T) {
-	s := NewSmtpMail("127.0.0.1", 1, "", "", "helo.test", true, "LOGIN", "From Name", "from@test.com", "SSL")
+func TestSmtpMail_Send_ConnectionError_SSL(t *testing.T) {
+	s := NewSmtpMail("127.0.0.1", 1, "", "", "helo.test", "LOGIN", "From Name", "from@test.com", "SSL")
 
 	err := s.Send("Recipient", "to@test.com", "Subject", "Body", []Attachment{
 		{Name: "test.txt", Data: []byte("hello")},
@@ -139,7 +137,7 @@ func TestSmtpMail_Send_ConnectionError_WithTLSCheck(t *testing.T) {
 }
 
 func TestSmtpMail_Send_ConnectionError_STARTTLS(t *testing.T) {
-	s := NewSmtpMail("127.0.0.1", 1, "", "", "", false, "", "", "from@test.com", "STARTTLS")
+	s := NewSmtpMail("127.0.0.1", 1, "", "", "", "", "", "from@test.com", "STARTTLS")
 
 	err := s.Send("", "to@test.com", "Test", "Content", nil)
 	assert.Error(t, err)

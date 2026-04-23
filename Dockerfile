@@ -32,8 +32,9 @@ COPY . .
 COPY --from=frontend /src/assets ./assets/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -trimpath \
     -ldflags="-s -w -X 'main.appVersion=${APP_VERSION}' -X 'main.buildTime=${BUILD_TIME}' -X 'main.gitCommit=${GIT_COMMIT}'" \
-    -a -o wg-ui .
+    -o wg-ui .
 
 # Stage 3: Runtime
 FROM alpine:3.23

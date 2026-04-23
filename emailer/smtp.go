@@ -1,7 +1,6 @@
 package emailer
 
 import (
-	"crypto/tls"
 	"fmt"
 	"strings"
 	"time"
@@ -17,7 +16,6 @@ type SmtpMail struct {
 	smtpHelo   string
 	authType   mail.AuthType
 	encryption mail.Encryption
-	noTLSCheck bool
 	fromName   string
 	from       string
 }
@@ -48,8 +46,8 @@ func encryptionType(encryptionType string) mail.Encryption {
 	}
 }
 
-func NewSmtpMail(hostname string, port int, username string, password string, SmtpHelo string, noTLSCheck bool, auth string, fromName, from string, encryption string) *SmtpMail {
-	ans := SmtpMail{hostname: hostname, port: port, username: username, password: password, smtpHelo: SmtpHelo, noTLSCheck: noTLSCheck, fromName: fromName, from: from, authType: authType(auth), encryption: encryptionType(encryption)}
+func NewSmtpMail(hostname string, port int, username string, password string, SmtpHelo string, auth string, fromName, from string, encryption string) *SmtpMail {
+	ans := SmtpMail{hostname: hostname, port: port, username: username, password: password, smtpHelo: SmtpHelo, fromName: fromName, from: from, authType: authType(auth), encryption: encryptionType(encryption)}
 	return &ans
 }
 
@@ -73,10 +71,6 @@ func (o *SmtpMail) Send(toName string, to string, subject string, content string
 	server.KeepAlive = false
 	server.ConnectTimeout = 10 * time.Second
 	server.SendTimeout = 10 * time.Second
-
-	if o.noTLSCheck {
-		server.TLSConfig = &tls.Config{InsecureSkipVerify: true}
-	}
 
 	smtpClient, err := server.Connect()
 

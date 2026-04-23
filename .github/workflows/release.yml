@@ -5,9 +5,7 @@ on:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
 
-permissions:
-  contents: write
-  packages: write
+permissions: {}
 
 env:
   REGISTRY: ghcr.io
@@ -16,6 +14,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -48,6 +48,9 @@ jobs:
   docker:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v6
 
@@ -87,7 +90,7 @@ jobs:
         with:
           push: true
           context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -100,6 +103,8 @@ jobs:
   binaries:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -108,17 +113,10 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: linux
-            goarch: arm
-            goarm: "7"
-          - goos: linux
-            goarch: "386"
           - goos: darwin
             goarch: amd64
           - goos: darwin
             goarch: arm64
-          - goos: freebsd
-            goarch: amd64
     steps:
       - uses: actions/checkout@v6
 
@@ -142,17 +140,17 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
         run: |
-          BINARY_NAME="wireguard-ui-${{ matrix.goos }}-${{ matrix.goarch }}"
-          if [ -n "${{ matrix.goarm }}" ]; then
-            BINARY_NAME="${BINARY_NAME}v${{ matrix.goarm }}"
-          fi
-          go build -ldflags="-X 'main.appVersion=${{ github.ref_name }}' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'main.gitCommit=${{ github.sha }}'" \
-            -o "${BINARY_NAME}" .
-          tar czf "${BINARY_NAME}.tar.gz" "${BINARY_NAME}" init.sh
+          ARCHIVE="wireguard-ui-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
+          go build -trimpath \
+            -ldflags="-s -w -X 'main.appVersion=${{ github.ref_name }}' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'main.gitCommit=${{ github.sha }}'" \
+            -o wireguard-ui .
+          tar czf "${ARCHIVE}" wireguard-ui
+          sha256sum "${ARCHIVE}" >> checksums.txt
 
-      - name: Upload release asset
+      - name: Upload release assets
         uses: softprops/action-gh-release@v3
         with:
-          files: wireguard-ui-*.tar.gz
+          files: |
+            wireguard-ui-*.tar.gz
+            checksums.txt
