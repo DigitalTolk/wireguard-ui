@@ -48,7 +48,7 @@ type SortKey =
   | "endpoint";
 type SortDir = "asc" | "desc";
 
-function getSortValue(peer: PeerStatus, key: SortKey): string | number | boolean {
+function getSortValue(peer: PeerStatus, key: SortKey): string | number {
   switch (key) {
     case "name":
       return (peer.name || "").toLowerCase();

@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -25,6 +24,10 @@ import (
 // connectedThreshold defines how recently a peer must have handshaked to be considered connected
 var connectedThreshold = 3 * time.Minute
 
+func isConnected(lastHandshake time.Time) bool {
+	return !lastHandshake.IsZero() && time.Since(lastHandshake) < connectedThreshold
+}
+
 func connectedPeerKeys() map[string]bool {
 	keys := make(map[string]bool)
 	wgClient, err := wgctrl.New()
@@ -42,7 +45,7 @@ func connectedPeerKeys() map[string]bool {
 
 	for _, dev := range devices {
 		for _, peer := range dev.Peers {
-			if time.Since(peer.LastHandshakeTime) < connectedThreshold {
+			if isConnected(peer.LastHandshakeTime) {
 				keys[peer.PublicKey.String()] = true
 			}
 		}
@@ -89,7 +92,6 @@ func APIListClients(db store.IStore) echo.HandlerFunc {
 
 		filtered := make([]model.ClientData, 0, len(clientDataList))
 		for _, clientData := range clientDataList {
-			clientData = util.FillClientSubnetRange(clientData)
 			cl := clientData.Client
 
 			// Non-admin users can only see clients matching their email
@@ -121,7 +123,7 @@ func APIListClients(db store.IStore) echo.HandlerFunc {
 				}
 			}
 
-			filtered = append(filtered, clientData)
+			filtered = append(filtered, util.FillClientSubnetRange(clientData))
 		}
 		return c.JSON(http.StatusOK, filtered)
 	}
@@ -193,7 +195,10 @@ func APICreateClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 		}
 
 		// validate name + public key uniqueness in one pass
-		existingClients, _ := db.GetClients(false)
+		existingClients, err := db.GetClients(false)
+		if err != nil {
+			return apiInternalError(c, "Cannot check for duplicates")
+		}
 		for _, ec := range existingClients {
 			if strings.EqualFold(ec.Client.Name, client.Name) {
 				return apiBadRequest(c, "A client with this name already exists")
@@ -300,7 +305,10 @@ func APIUpdateClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 		nameChanged := !strings.EqualFold(_client.Name, client.Name)
 		pubKeyChanged := _client.PublicKey != "" && client.PublicKey != _client.PublicKey
 		if nameChanged || pubKeyChanged {
-			existingClients, _ := db.GetClients(false)
+			existingClients, err := db.GetClients(false)
+			if err != nil {
+				return apiInternalError(c, "Cannot check for duplicates")
+			}
 			for _, ec := range existingClients {
 				if ec.Client.ID == client.ID {
 					continue
@@ -645,7 +653,6 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 				}
 			}
 
-			conv := map[bool]int{true: 1, false: 0}
 			for i := range devices {
 				dev := DeviceStatus{Name: devices[i].Name}
 				for j := range devices[i].Peers {
@@ -669,7 +676,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 						LastHandshakeRel:  handshakeRel,
 						AllocatedIP:       allocatedIPs,
 					}
-					p.Connected = p.LastHandshakeRel < connectedThreshold
+					p.Connected = isConnected(handshakeTime)
 
 					if devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
@@ -681,8 +688,6 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 					}
 					dev.Peers = append(dev.Peers, p)
 				}
-				sort.SliceStable(dev.Peers, func(a, b int) bool { return dev.Peers[a].Name < dev.Peers[b].Name })
-				sort.SliceStable(dev.Peers, func(a, b int) bool { return conv[dev.Peers[a].Connected] > conv[dev.Peers[b].Connected] })
 				devicesStatus = append(devicesStatus, dev)
 			}
 		}

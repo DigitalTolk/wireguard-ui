@@ -42,8 +42,7 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, cw *h
 	settings.GET("", handler.APIGetSettings(db))
 	settings.PUT("", handler.APIUpdateSettings(db, cw), handler.ContentTypeJson)
 
-	// Users (admin only for list/create/delete)
-	// Users (read-only — managed via SSO)
+	// Users (admin only)
 	users := g.Group("/users", handler.APIAuth, handler.APIAdmin)
 	users.GET("", handler.APIListUsers(db))
 	users.GET("/:username", handler.APIGetUser(db))

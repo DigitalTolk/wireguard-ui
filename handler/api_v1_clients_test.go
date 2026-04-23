@@ -2071,3 +2071,22 @@ func TestAPIServerStatus(t *testing.T) {
 	// On systems without, it returns 500
 	assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError}, rec.Code)
 }
+
+// Regression: peers that never connected (zero handshake time) must not be
+// reported as connected. Both connectedPeerKeys and APIServerStatus use
+// isConnected() which guards against time.Since(zero).
+func TestIsConnected_ZeroHandshake(t *testing.T) {
+	assert.False(t, isConnected(time.Time{}), "zero time must not be connected")
+}
+
+func TestIsConnected_RecentHandshake(t *testing.T) {
+	assert.True(t, isConnected(time.Now().Add(-30*time.Second)), "30s ago must be connected")
+}
+
+func TestIsConnected_OldHandshake(t *testing.T) {
+	assert.False(t, isConnected(time.Now().Add(-10*time.Minute)), "10min ago must be disconnected")
+}
+
+func TestIsConnected_ExactlyAtThreshold(t *testing.T) {
+	assert.False(t, isConnected(time.Now().Add(-connectedThreshold)), "exactly at threshold must be disconnected")
+}

@@ -97,7 +97,7 @@ function QrCodeDialog({ client, onClose }: { client: ClientData | null; onClose:
     queryKey: ["client-qr", client?.Client.id],
     queryFn: () => apiGet<{ qr_code: string }>(`/clients/${client!.Client.id}/qrcode`),
     enabled: !!client,
-    staleTime: Infinity,
+    staleTime: 60_000,
   });
 
   return (
@@ -570,7 +570,7 @@ export function ClientsPage() {
           <DialogHeader>
             <DialogTitle>New Client</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-5 py-4 sm:grid-cols-2" onChange={() => setCreateTouched(true)}>
+          <div className="grid items-start gap-5 py-4 sm:grid-cols-2" onChange={() => setCreateTouched(true)}>
             <div className="grid gap-2">
               <Label htmlFor="new-name">Name</Label>
               <Input
@@ -739,7 +739,7 @@ export function ClientsPage() {
           <DialogHeader>
             <DialogTitle>Edit Client</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-5 py-4 sm:grid-cols-2">
+          <div className="grid items-start gap-5 py-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="edit-name">Name</Label>
               <Input
