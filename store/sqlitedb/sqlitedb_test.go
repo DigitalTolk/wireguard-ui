@@ -423,10 +423,10 @@ func TestInit_CreatesDefaults(t *testing.T) {
 	err := db.Init()
 	require.NoError(t, err)
 
-	// should have created default user
+	// no default user — first OIDC login creates admin
 	users, err := db.GetUsers()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(users), 1)
+	assert.Len(t, users, 0)
 
 	// should have created server config
 	server, err := db.GetServer()

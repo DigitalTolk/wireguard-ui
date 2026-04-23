@@ -6,13 +6,13 @@ on:
   pull_request:
     branches: [main, master]
 
-# Minimal permissions — no secrets needed for CI
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -70,6 +70,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: build-and-test
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -88,6 +90,7 @@ jobs:
     needs: build-and-test
     if: always()
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - name: Finalize Coveralls
         uses: coverallsapp/github-action@v2

@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/DigitalTolk/wireguard-ui/model"
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
 
@@ -175,6 +177,10 @@ func TestAPIGetMe_WithSession(t *testing.T) {
 
 	env := setupTestEnv(t)
 	util.DisableLogin = false
+
+	// Create the user that the session will reference
+	now := time.Now().UTC()
+	env.db.SaveUser(model.User{Username: "admin", Email: "admin@test.com", Admin: true, CreatedAt: now, UpdatedAt: now})
 
 	// Create a route that first creates a session and then calls APIGetMe
 	env.echo.GET("/setup-and-getme", func(c echo.Context) error {

@@ -130,6 +130,10 @@ func TestFindOrCreateOIDCUser_NewUser_AdminViaGroups(t *testing.T) {
 
 func TestFindOrCreateOIDCUser_NewUser_NotAdmin(t *testing.T) {
 	env := setupTestEnv(t)
+	now := time.Now().UTC()
+
+	// pre-create a user so the next one isn't the first (first user auto-gets admin)
+	env.db.SaveUser(model.User{Username: "existing", OIDCSub: "sub-existing", Admin: true, CreatedAt: now, UpdatedAt: now})
 
 	origAutoProvision := util.OIDCAutoProvision
 	util.OIDCAutoProvision = true
