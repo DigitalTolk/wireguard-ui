@@ -97,7 +97,7 @@ function QrCodeDialog({ client, onClose }: { client: ClientData | null; onClose:
     queryKey: ["client-qr", client?.Client.id],
     queryFn: () => apiGet<{ qr_code: string }>(`/clients/${client!.Client.id}/qrcode`),
     enabled: !!client,
-    staleTime: Infinity,
+    staleTime: 60_000,
   });
 
   return (

@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/gommon/log"
 
 	"github.com/DigitalTolk/wireguard-ui/store"
-	"github.com/DigitalTolk/wireguard-ui/util"
 )
 
 // APIListUsers returns all users (read-only, managed via SSO)
@@ -47,11 +46,6 @@ func APIPatchUserAdmin(db store.IStore) echo.HandlerFunc {
 		if err := db.SaveUser(user); err != nil {
 			return apiInternalError(c, "Cannot update user")
 		}
-
-		// update CRC32 cache so existing sessions reflect the change
-		util.DBUsersToCRC32Mutex.Lock()
-		util.DBUsersToCRC32[user.Username] = util.GetDBUserCRC32(user)
-		util.DBUsersToCRC32Mutex.Unlock()
 
 		action := "user.demote"
 		if body.Admin {
