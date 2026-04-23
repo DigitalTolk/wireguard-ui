@@ -177,8 +177,6 @@ describe("SettingsPage interactions", () => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/settings")) {
         // Return settings on GET, error on PUT
-        const method = (vi.mocked(globalThis.fetch).mock.lastCall?.[1] as RequestInit | undefined)?.method;
-        // Since we can't easily distinguish, check the second arg
         return {
           ok: true,
           status: 200,
