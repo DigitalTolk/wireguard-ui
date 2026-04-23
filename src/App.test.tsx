@@ -24,6 +24,9 @@ globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       }),
     } as Response;
   }
+  if (url.includes("/subnet-ranges")) {
+    return { ok: true, status: 200, json: async () => [] } as Response;
+  }
   if (url.includes("/clients")) {
     return { ok: true, status: 200, json: async () => [] } as Response;
   }
@@ -34,16 +37,16 @@ describe("App", () => {
   it("renders the app shell with sidebar", async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText("WireGuard UI")).toBeInTheDocument();
+      expect(screen.getAllByText("WireGuard UI").length).toBeGreaterThan(0);
     });
   });
 
   it("shows navigation links", async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText("Clients")).toBeInTheDocument();
-      expect(screen.getByText("Status")).toBeInTheDocument();
-      expect(screen.getByText("About")).toBeInTheDocument();
+      expect(screen.getAllByText("Clients").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Status").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("About").length).toBeGreaterThan(0);
     });
   });
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -40,6 +41,10 @@ func APISaveWolHost(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Invalid request body")
 		}
 
+		if strings.TrimSpace(body.Name) == "" {
+			return apiBadRequest(c, "Name is required")
+		}
+
 		host := model.WakeOnLanHost{
 			MacAddress: body.MacAddress,
 			Name:       body.Name,
@@ -69,6 +74,7 @@ func APISaveWolHost(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, "Cannot save WoL host")
 		}
 
+		auditLogEvent(c, "wol.host.save", "wol", host.MacAddress, map[string]string{"name": host.Name})
 		return c.JSON(http.StatusOK, host)
 	}
 }
@@ -80,6 +86,7 @@ func APIDeleteWolHost(db store.IStore) echo.HandlerFunc {
 		if err := db.DeleteWakeOnHostLanHost(macAddress); err != nil {
 			return apiInternalError(c, "Cannot delete WoL host")
 		}
+		auditLogEvent(c, "wol.host.delete", "wol", macAddress, nil)
 		return c.NoContent(http.StatusNoContent)
 	}
 }
@@ -126,6 +133,7 @@ func APIWakeHost(db store.IStore) echo.HandlerFunc {
 			log.Warnf("Cannot update latest_used for WoL host %s: %v", macAddress, err)
 		}
 
+		auditLogEvent(c, "wol.host.wake", "wol", host.MacAddress, map[string]string{"name": host.Name})
 		return c.JSON(http.StatusOK, host)
 	}
 }

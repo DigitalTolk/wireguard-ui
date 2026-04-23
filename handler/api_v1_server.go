@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -36,6 +37,13 @@ func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Interface IP address must be in CIDR format")
 		}
 
+		if serverInterface.ListenPort < 1 || serverInterface.ListenPort > 65535 {
+			return apiBadRequest(c, "Listen port must be between 1 and 65535")
+		}
+
+		// capture before state
+		oldServer, _ := db.GetServer()
+
 		serverInterface.UpdatedAt = time.Now().UTC()
 
 		if err := db.SaveServerInterface(serverInterface); err != nil {
@@ -43,6 +51,10 @@ func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
 		}
 
 		log.Infof("Updated server interfaces: %v", serverInterface)
+		auditLogEvent(c, "server.interface.update", "server", "interface", map[string]interface{}{
+			"before": oldServer.Interface,
+			"after":  serverInterface,
+		})
 		return c.JSON(http.StatusOK, serverInterface)
 	}
 }
@@ -66,6 +78,7 @@ func APIRegenerateServerKeypair(db store.IStore) echo.HandlerFunc {
 		}
 
 		log.Infof("Regenerated server keypair")
+		auditLogEvent(c, "server.keypair.regenerate", "server", "keypair", nil)
 		return c.JSON(http.StatusOK, kp)
 	}
 }
@@ -93,6 +106,21 @@ func APIUpdateSettings(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Invalid DNS server address")
 		}
 
+		if settings.MTU != 0 && (settings.MTU < 1280 || settings.MTU > 9000) {
+			return apiBadRequest(c, "MTU must be 0 (to omit) or between 1280 and 9000")
+		}
+
+		if settings.PersistentKeepalive < 0 || settings.PersistentKeepalive > 65535 {
+			return apiBadRequest(c, "Persistent keepalive must be between 0 and 65535")
+		}
+
+		if settings.ConfigFilePath != "" && !strings.HasPrefix(settings.ConfigFilePath, "/") {
+			return apiBadRequest(c, "Config file path must be an absolute path starting with /")
+		}
+
+		// capture before state
+		oldSettings, _ := db.GetGlobalSettings()
+
 		settings.UpdatedAt = time.Now().UTC()
 
 		if err := db.SaveGlobalSettings(settings); err != nil {
@@ -100,6 +128,10 @@ func APIUpdateSettings(db store.IStore) echo.HandlerFunc {
 		}
 
 		log.Infof("Updated global settings")
+		auditLogEvent(c, "settings.update", "settings", "global", map[string]interface{}{
+			"before": oldSettings,
+			"after":  settings,
+		})
 		return c.JSON(http.StatusOK, settings)
 	}
 }

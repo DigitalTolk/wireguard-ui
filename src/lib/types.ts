@@ -15,7 +15,6 @@ export interface Client {
   preshared_key: string;
   name: string;
   email: string;
-  telegram_userid: string;
   subnet_ranges: string[];
   allocated_ips: string[];
   allowed_ips: string[];
@@ -115,5 +114,24 @@ export interface ClientDefaults {
 
 export interface AppInfo {
   base_path: string;
+  app_version: string;
+  git_commit: string;
   client_defaults: ClientDefaults;
+}
+
+export interface GitHubRelease {
+  tag_name: string;
+  published_at: string;
+  author: {
+    login: string;
+    avatar_url: string;
+    html_url: string;
+  };
+}
+
+export interface GitHubContributor {
+  login: string;
+  avatar_url: string;
+  html_url: string;
+  contributions: number;
 }

@@ -1,5 +1,3 @@
-github.com/NicoNex/echotron/v3 v3.27.0 h1:iq4BLPO+Dz1JHjh2HPk0D0NldAZSYcAjaOicgYEhUzw=
-github.com/NicoNex/echotron/v3 v3.27.0/go.mod h1:LpP5IyHw0y+DZUZMBgXEDAF9O8feXrQu7w7nlJzzoZI=
 github.com/coreos/bbolt v1.3.1-coreos.6.0.20180223184059-4f5275f4ebbf/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=
 github.com/coreos/go-oidc/v3 v3.18.0 h1:V9orjXynvu5wiC9SemFTWnG4F45v403aIcjWo0d41+A=
 github.com/coreos/go-oidc/v3 v3.18.0/go.mod h1:DYCf24+ncYi+XkIH97GY1+dqoRlbaSI26KVTCI9SrY4=

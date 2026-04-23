@@ -3,7 +3,6 @@ module github.com/DigitalTolk/wireguard-ui
 go 1.26
 
 require (
-	github.com/NicoNex/echotron/v3 v3.27.0
 	github.com/glendc/go-external-ip v0.1.0
 	github.com/gorilla/sessions v1.2.2
 	github.com/labstack/echo-contrib v0.15.0

@@ -165,6 +165,8 @@ func TestBuildClientConfig(t *testing.T) {
 	}
 
 	config := BuildClientConfig(client, server, setting)
+	assert.Contains(t, config, "# CONFIDENTIAL")
+	assert.Contains(t, config, "# This file contains private cryptographic keys.")
 	assert.Contains(t, config, "[Interface]")
 	assert.Contains(t, config, "Address = 10.252.1.2/32")
 	assert.Contains(t, config, "PrivateKey = clientprivkey")
@@ -336,29 +338,6 @@ func TestConcatMultipleSlices(t *testing.T) {
 
 	result = ConcatMultipleSlices([]byte{1})
 	assert.Equal(t, []byte{1}, result)
-}
-
-func TestTgUseridToClientID(t *testing.T) {
-	// reset
-	TgUseridToClientID = map[int64][]string{}
-
-	AddTgToClientID(123, "client1")
-	assert.Equal(t, []string{"client1"}, TgUseridToClientID[123])
-
-	AddTgToClientID(123, "client2")
-	assert.Equal(t, []string{"client1", "client2"}, TgUseridToClientID[123])
-
-	UpdateTgToClientID(456, "client1")
-	assert.Equal(t, []string{"client2"}, TgUseridToClientID[123])
-	assert.Equal(t, []string{"client1"}, TgUseridToClientID[456])
-
-	RemoveTgToClientID("client1")
-	_, has456 := TgUseridToClientID[456]
-	assert.False(t, has456)
-
-	RemoveTgToClientID("client2")
-	_, has123 := TgUseridToClientID[123]
-	assert.False(t, has123)
 }
 
 func TestFillClientSubnetRange(t *testing.T) {
@@ -741,135 +720,6 @@ func TestFindSubnetRangeForIP(t *testing.T) {
 	}
 	result4 := FillClientSubnetRange(client4)
 	assert.Contains(t, result4.Client.SubnetRanges, "LAN")
-}
-
-func TestUpdateTgToClientID_DetachAndReattach(t *testing.T) {
-	// reset
-	TgUseridToClientID = map[int64][]string{}
-
-	// Add to user 100
-	AddTgToClientID(100, "clientA")
-	AddTgToClientID(100, "clientB")
-	assert.Equal(t, []string{"clientA", "clientB"}, TgUseridToClientID[100])
-
-	// Update clientA to user 200 (should detach from 100)
-	UpdateTgToClientID(200, "clientA")
-	assert.Equal(t, []string{"clientB"}, TgUseridToClientID[100])
-	assert.Equal(t, []string{"clientA"}, TgUseridToClientID[200])
-
-	// Update clientB to user 200 (should remove 100 entirely since empty)
-	UpdateTgToClientID(200, "clientB")
-	_, has100 := TgUseridToClientID[100]
-	assert.False(t, has100)
-	assert.Equal(t, []string{"clientA", "clientB"}, TgUseridToClientID[200])
-
-	// Remove non-existent clientID - should be safe
-	RemoveTgToClientID("nonexistent")
-	assert.Equal(t, []string{"clientA", "clientB"}, TgUseridToClientID[200])
-}
-
-// --- SendRequestedConfigsToTelegram Tests ---
-
-func TestSendRequestedConfigsToTelegram_NoUserid(t *testing.T) {
-	store := newMockStore()
-
-	// Empty map - should return empty list immediately
-	TgUseridToClientID = map[int64][]string{}
-	result := SendRequestedConfigsToTelegram(store, 12345)
-	assert.Empty(t, result)
-}
-
-func TestSendRequestedConfigsToTelegram_ClientNotFound(t *testing.T) {
-	store := newMockStore()
-
-	// Set up a userid mapping to a client that doesn't exist
-	TgUseridToClientID = map[int64][]string{
-		12345: {"nonexistent-client"},
-	}
-
-	result := SendRequestedConfigsToTelegram(store, 12345)
-	assert.Contains(t, result, "nonexistent-client")
-}
-
-func TestSendRequestedConfigsToTelegram_InvalidTgUserid(t *testing.T) {
-	store := newMockStore()
-
-	// Add a client with invalid TgUserid
-	store.clients = []model.ClientData{
-		{
-			Client: &model.Client{
-				ID:           "client1",
-				Name:         "Bad TG Client",
-				TgUserid:     "not-a-number",
-				PublicKey:    "pub1",
-				PrivateKey:   "priv1",
-				AllocatedIPs: []string{"10.0.0.2/32"},
-				AllowedIPs:   []string{"0.0.0.0/0"},
-			},
-		},
-	}
-
-	TgUseridToClientID = map[int64][]string{
-		12345: {"client1"},
-	}
-
-	result := SendRequestedConfigsToTelegram(store, 12345)
-	assert.Contains(t, result, "Bad TG Client")
-}
-
-func TestSendRequestedConfigsToTelegram_ValidClientFailsTelegram(t *testing.T) {
-	store := newMockStore()
-
-	// Add a client with a valid TgUserid and private key (for QR code)
-	store.clients = []model.ClientData{
-		{
-			Client: &model.Client{
-				ID:           "client-tg",
-				Name:         "TG Valid Client",
-				TgUserid:     "99999",
-				PublicKey:    "pub1",
-				PrivateKey:   "priv1",
-				AllocatedIPs: []string{"10.0.0.2/32"},
-				AllowedIPs:   []string{"0.0.0.0/0"},
-			},
-		},
-	}
-
-	TgUseridToClientID = map[int64][]string{
-		99999: {"client-tg"},
-	}
-
-	// This will call telegram.SendConfig which will fail (no token/bot configured)
-	// but it exercises the config building, QR code generation, and userid parsing paths
-	result := SendRequestedConfigsToTelegram(store, 99999)
-	// The telegram send will fail, so the client should be in the failed list
-	assert.Contains(t, result, "TG Valid Client")
-}
-
-func TestSendRequestedConfigsToTelegram_ClientWithoutPrivateKey(t *testing.T) {
-	store := newMockStore()
-
-	// Client without private key - no QR code generated
-	store.clients = []model.ClientData{
-		{
-			Client: &model.Client{
-				ID:           "client-nopk",
-				Name:         "No PK Client",
-				TgUserid:     "88888",
-				PublicKey:    "pub1",
-				PrivateKey:   "", // no private key
-				AllocatedIPs: []string{"10.0.0.3/32"},
-				AllowedIPs:   []string{"0.0.0.0/0"},
-			},
-		},
-	}
-
-	TgUseridToClientID = map[int64][]string{
-		88888: {"client-nopk"},
-	}
-
-	result := SendRequestedConfigsToTelegram(store, 88888)
-	assert.Contains(t, result, "No PK Client")
 }
 
 // --- WriteWireGuardServerConfig with custom template (additional) ---

@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPut } from "@/lib/api-client";
 import { splitList } from "@/lib/utils";
+import { isValidCIDRList, isValidPort } from "@/lib/validation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Save } from "lucide-react";
 import { toast } from "sonner";
 import type { Server } from "@/lib/types";
 
@@ -31,15 +33,34 @@ export function ServerPage() {
   const preDownValue = preDown ?? iface?.pre_down ?? "";
   const postDownValue = postDown ?? iface?.post_down ?? "";
 
-  const saveInterface = useMutation({
-    mutationFn: () =>
-      apiPut("/server/interface", {
+  const serverErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    if (!addrValue.trim()) {
+      errors.addresses = "At least one address is required";
+    } else if (!isValidCIDRList(addrValue)) {
+      errors.addresses = "Each address must be valid CIDR (e.g. 10.252.1.0/24)";
+    }
+    const portNum = Number(portValue);
+    if (!portValue.trim()) {
+      errors.port = "Listen port is required";
+    } else if (!isValidPort(portNum)) {
+      errors.port = "Port must be between 1 and 65535";
+    }
+    return errors;
+  }, [addrValue, portValue]);
+  const serverValid = Object.keys(serverErrors).length === 0;
+
+  const saveAndApply = useMutation({
+    mutationFn: async () => {
+      await apiPut("/server/interface", {
         addresses: splitList(addrValue),
         listen_port: Number(portValue) || 0,
         post_up: postUpValue,
         pre_down: preDownValue,
         post_down: postDownValue,
-      }),
+      });
+      await apiPost("/server/apply-config");
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["server"] });
       setAddresses(null);
@@ -47,7 +68,7 @@ export function ServerPage() {
       setPostUp(null);
       setPreDown(null);
       setPostDown(null);
-      toast.success("Interface settings saved");
+      toast.success("Interface saved and config applied");
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -61,20 +82,20 @@ export function ServerPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const applyConfig = useMutation({
-    mutationFn: () => apiPost("/server/apply-config"),
-    onSuccess: () => toast.success("Config applied"),
-    onError: (err: Error) => toast.error(err.message),
-  });
-
   if (isLoading) return <Skeleton className="h-64 w-full" />;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Server Configuration</h2>
-        <Button onClick={() => applyConfig.mutate()} disabled={applyConfig.isPending}>
-          {applyConfig.isPending ? "Applying..." : "Apply Config"}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">
+          Server Configuration
+        </h2>
+        <Button
+          onClick={() => saveAndApply.mutate()}
+          disabled={!serverValid || saveAndApply.isPending}
+        >
+          <Save className="mr-2 h-4 w-4" />
+          {saveAndApply.isPending ? "Applying..." : "Apply Config"}
         </Button>
       </div>
 
@@ -92,6 +113,9 @@ export function ServerPage() {
               placeholder="10.252.1.0/24"
               aria-label="Server addresses"
             />
+            {serverErrors.addresses && (
+              <p className="text-destructive">{serverErrors.addresses}</p>
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="srv-port">Listen Port</Label>
@@ -103,6 +127,9 @@ export function ServerPage() {
               placeholder="51820"
               aria-label="Listen port"
             />
+            {serverErrors.port && (
+              <p className="text-destructive">{serverErrors.port}</p>
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="srv-postup">Post-Up Script</Label>
@@ -134,14 +161,6 @@ export function ServerPage() {
               rows={3}
             />
           </div>
-          <div className="flex justify-end">
-            <Button
-              onClick={() => saveInterface.mutate()}
-              disabled={saveInterface.isPending}
-            >
-              {saveInterface.isPending ? "Saving..." : "Save Interface"}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -151,22 +170,29 @@ export function ServerPage() {
             <CardTitle>Keypair</CardTitle>
             <Button
               variant="outline"
-              size="sm"
               onClick={() => {
-                if (confirm("Regenerate server keypair? All clients will need to be updated.")) {
+                if (
+                  confirm(
+                    "Regenerate server keypair? All clients will need to be updated."
+                  )
+                ) {
                   regenerateKeypair.mutate();
                 }
               }}
               disabled={regenerateKeypair.isPending}
             >
-              Regenerate
+              {regenerateKeypair.isPending ? "Regenerating..." : "Regenerate"}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-2">
             <Label>Public Key</Label>
-            <Input value={server?.KeyPair?.public_key || ""} readOnly aria-label="Server public key" />
+            <Input
+              value={server?.KeyPair?.public_key || ""}
+              readOnly
+              aria-label="Server public key"
+            />
           </div>
         </CardContent>
       </Card>

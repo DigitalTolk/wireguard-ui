@@ -20,18 +20,18 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install frontend dependencies
-        run: cd frontend && npm ci
+        run: npm ci
 
       - name: Lint frontend
-        run: cd frontend && npm run lint
+        run: npm run lint
 
       - name: Build frontend
-        run: cd frontend && npm run build
+        run: npm run build
 
       - name: Lint Go
         uses: golangci/golangci-lint-action@v7
@@ -41,11 +41,11 @@ jobs:
 
       - name: Run Go tests with coverage
         run: |
-          go test $(go list ./... | grep -v frontend | grep -v 'wireguard-ui$' | grep -v telegram) \
+          go test $(go list ./... | grep -v 'wireguard-ui$' | grep -v node_modules) \
             -coverprofile=coverage.out -covermode=atomic -timeout 180s
 
       - name: Run frontend tests with coverage
-        run: cd frontend && npx vitest run --coverage
+        run: npx vitest run --coverage
 
       - name: Upload Go coverage to Coveralls
         uses: coverallsapp/github-action@v2
@@ -58,7 +58,7 @@ jobs:
       - name: Upload frontend coverage to Coveralls
         uses: coverallsapp/github-action@v2
         with:
-          file: frontend/coverage/lcov.info
+          file: coverage/lcov.info
           format: lcov
           flag-name: frontend
           parallel: true

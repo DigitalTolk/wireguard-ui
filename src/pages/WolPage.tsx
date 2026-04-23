@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-client";
+import { isValidMAC } from "@/lib/validation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -66,11 +67,25 @@ export function WolPage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
+  const wolErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    if (!newHost.name.trim()) {
+      errors.name = "Name is required";
+    }
+    if (!newHost.mac.trim()) {
+      errors.mac = "MAC address is required";
+    } else if (!isValidMAC(newHost.mac)) {
+      errors.mac = "Invalid MAC format (use AA:BB:CC:DD:EE:FF or AA-BB-CC-DD-EE-FF)";
+    }
+    return errors;
+  }, [newHost]);
+  const wolValid = Object.keys(wolErrors).length === 0;
+
   if (isLoading) return <Skeleton className="h-64 w-full" />;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Wake-on-LAN</h2>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="mr-2 h-4 w-4" />
@@ -82,6 +97,7 @@ export function WolPage() {
           <CardTitle>Hosts</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -141,6 +157,7 @@ export function WolPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -161,6 +178,9 @@ export function WolPage() {
                   setNewHost((p) => ({ ...p, name: e.target.value }))
                 }
               />
+              {wolErrors.name && (
+                <p className="text-destructive">{wolErrors.name}</p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="wol-mac">MAC Address</Label>
@@ -172,6 +192,9 @@ export function WolPage() {
                   setNewHost((p) => ({ ...p, mac: e.target.value }))
                 }
               />
+              {wolErrors.mac && (
+                <p className="text-destructive">{wolErrors.mac}</p>
+              )}
             </div>
           </div>
           <div className="flex justify-end gap-3">
@@ -185,9 +208,7 @@ export function WolPage() {
                   MacAddress: newHost.mac,
                 })
               }
-              disabled={
-                !newHost.name || !newHost.mac || createHost.isPending
-              }
+              disabled={!wolValid || createHost.isPending}
             >
               {createHost.isPending ? "Creating..." : "Create"}
             </Button>

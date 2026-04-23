@@ -11,7 +11,7 @@ describe("ClientsPage", () => {
   });
 
   it("shows client list heading", async () => {
-    cleanup = mockFetch({ "/clients": [] });
+    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
     await waitFor(() => {
       expect(screen.getByText("WireGuard Clients")).toBeInTheDocument();
@@ -19,7 +19,7 @@ describe("ClientsPage", () => {
   });
 
   it("shows empty state when no clients", async () => {
-    cleanup = mockFetch({ "/clients": [] });
+    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -39,10 +39,13 @@ describe("ClientsPage", () => {
             allocated_ips: ["10.0.0.2/32"],
             allowed_ips: ["0.0.0.0/0"],
             additional_notes: "",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
           },
           QRCode: "",
         },
       ],
+      "/subnet-ranges": [],
     });
 
     renderWithProviders(<ClientsPage />);
@@ -64,10 +67,13 @@ describe("ClientsPage", () => {
             allocated_ips: [],
             allowed_ips: [],
             additional_notes: "",
+            created_at: "2024-01-01T00:00:00Z",
+            updated_at: "2024-01-01T00:00:00Z",
           },
           QRCode: "",
         },
       ],
+      "/subnet-ranges": [],
     });
 
     renderWithProviders(<ClientsPage />);

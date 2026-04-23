@@ -17,7 +17,7 @@ func TestAPIAppInfo(t *testing.T) {
 	req, rec := jsonRequest(http.MethodGet, "/api/v1/auth/info", nil)
 	e := echo.New()
 	c := e.NewContext(req, rec)
-	err := APIAppInfo()(c)
+	err := APIAppInfo("v1.0.0", "abc123")(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -112,7 +112,7 @@ func TestFavicon_DefaultRedirect(t *testing.T) {
 	err := Favicon()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusFound, rec.Code)
-	assert.Contains(t, rec.Header().Get("Location"), "/assets/favicon.ico")
+	assert.Contains(t, rec.Header().Get("Location"), "/static/favicon.svg")
 }
 
 func TestFavicon_CustomFile(t *testing.T) {

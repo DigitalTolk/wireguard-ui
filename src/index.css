@@ -135,6 +135,11 @@
     @apply bg-background text-foreground;
     margin: 0;
   }
+  /* dark mode for native date inputs */
+  .dark input[type="date"],
+  .dark input[type="datetime-local"] {
+    color-scheme: dark;
+  }
   /* WCAG: enforce 14px minimum — override Tailwind text-xs (12px) and text-sm (14px) */
   .text-xs {
     font-size: 0.875rem !important; /* 14px instead of 12px */

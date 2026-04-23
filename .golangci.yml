@@ -41,4 +41,6 @@ linters:
       - hack
       - vendor
       - frontend
+      - src
+      - node_modules
       - third_party
