@@ -127,7 +127,7 @@ func TestSmtpMail_Send_ConnectionError(t *testing.T) {
 	assert.Error(t, err, "Send should fail when SMTP server is unreachable")
 }
 
-func TestSmtpMail_Send_ConnectionError_WithTLSCheck(t *testing.T) {
+func TestSmtpMail_Send_ConnectionError_SSL(t *testing.T) {
 	s := NewSmtpMail("127.0.0.1", 1, "", "", "helo.test", "LOGIN", "From Name", "from@test.com", "SSL")
 
 	err := s.Send("Recipient", "to@test.com", "Subject", "Body", []Attachment{
