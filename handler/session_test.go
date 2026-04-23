@@ -277,7 +277,7 @@ func TestCreateSession(t *testing.T) {
 
 	var sessionCreated bool
 	env.echo.GET("/create-session", func(c echo.Context) error {
-		createSession(c, "testuser", true, uint32(12345), false)
+		createSession(c, "testuser", true, uint32(12345))
 		sessionCreated = true
 		return c.String(http.StatusOK, "ok")
 	})
@@ -300,132 +300,37 @@ func TestCreateSession(t *testing.T) {
 	assert.True(t, found, "session_token cookie should be set")
 }
 
-func TestCreateSession_WithRememberMe(t *testing.T) {
+func TestCreateSession_MaxAgeFromSessionMaxDuration(t *testing.T) {
 	origDisable := util.DisableLogin
 	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 86400 * 7 // 7 days
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
 
 	env := setupTestEnv(t)
 	util.DisableLogin = false
 
-	env.echo.GET("/create-session-remember", func(c echo.Context) error {
-		createSession(c, "testuser", false, uint32(999), true)
+	env.echo.GET("/create-session-maxage", func(c echo.Context) error {
+		createSession(c, "testuser", false, uint32(999))
 		return c.String(http.StatusOK, "ok")
 	})
 
-	req, rec := jsonRequest(http.MethodGet, "/create-session-remember", nil)
+	req, rec := jsonRequest(http.MethodGet, "/create-session-maxage", nil)
 	env.echo.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Verify session_token cookie has MaxAge > 0
+	// Verify session_token cookie has MaxAge from SessionMaxDuration
 	cookies := rec.Result().Cookies()
 	for _, cookie := range cookies {
 		if cookie.Name == "session_token" {
-			assert.Greater(t, cookie.MaxAge, 0, "remember-me cookie should have positive MaxAge")
+			assert.Equal(t, int(util.SessionMaxDuration), cookie.MaxAge,
+				"session cookie should have MaxAge equal to SessionMaxDuration")
 			break
 		}
 	}
-}
-
-// --- ValidSession tests ---
-
-func TestValidSession_DisabledLogin(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = true
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = true
-
-	called := false
-	env.echo.GET("/test-valid-session", ValidSession(func(c echo.Context) error {
-		called = true
-		return c.String(http.StatusOK, "ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodGet, "/test-valid-session", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.True(t, called)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestValidSession_NoSession_Redirects(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/protected", ValidSession(func(c echo.Context) error {
-		return c.String(http.StatusOK, "ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodGet, "/protected", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	assert.Contains(t, rec.Header().Get("Location"), "/login")
-}
-
-// --- NeedsAdmin tests ---
-
-func TestNeedsAdmin_DisabledLogin(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = true
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = true
-
-	called := false
-	env.echo.GET("/admin-only", NeedsAdmin(func(c echo.Context) error {
-		called = true
-		return c.String(http.StatusOK, "admin ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodGet, "/admin-only", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.True(t, called)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestNeedsAdmin_NotAdmin_Redirects(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/admin-only", NeedsAdmin(func(c echo.Context) error {
-		return c.String(http.StatusOK, "admin ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodGet, "/admin-only", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-}
-
-// --- RefreshSession tests ---
-
-func TestRefreshSession_DisabledLogin(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = true
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = true
-
-	called := false
-	env.echo.GET("/refresh-test", RefreshSession(func(c echo.Context) error {
-		called = true
-		return c.String(http.StatusOK, "ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodGet, "/refresh-test", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.True(t, called)
-	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 // --- setUser tests ---
@@ -468,166 +373,6 @@ func TestClearSession(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// --- doRefreshSession tests ---
-
-func TestDoRefreshSession_DisabledLogin(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = true
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = true
-
-	env.echo.GET("/do-refresh", func(c echo.Context) error {
-		doRefreshSession(c) // should be a no-op
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req, rec := jsonRequest(http.MethodGet, "/do-refresh", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestDoRefreshSession_NoRememberMe(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/do-refresh-no-remember", func(c echo.Context) error {
-		doRefreshSession(c) // should be a no-op since no remember-me
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req, rec := jsonRequest(http.MethodGet, "/do-refresh-no-remember", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestDoRefreshSession_EligibleForRefresh(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	origMaxDuration := util.SessionMaxDuration
-	util.SessionMaxDuration = 86400 * 90 // 90 days in seconds
-	defer func() {
-		util.DisableLogin = origDisable
-		util.SessionMaxDuration = origMaxDuration
-	}()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Step 1: Create a remember-me session with manipulated timestamps
-	env.echo.GET("/create-old-session", func(c echo.Context) error {
-		// Create a session with remember-me
-		createSession(c, "admin", true, uint32(12345), true)
-
-		// Now manipulate the session to be >24h old
-		sess, _ := session.Get("session", c)
-		now := time.Now().UTC().Unix()
-		sess.Values["created_at"] = now - 172800 // created 2 days ago
-		sess.Values["updated_at"] = now - 86401  // updated >24h ago
-		sess.Save(c.Request(), c.Response())
-
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-old-session", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	// Step 2: Call doRefreshSession with the session cookies
-	// Deduplicate cookies: keep only the LAST cookie for each name
-	allCookies := rec1.Result().Cookies()
-	lastCookie := make(map[string]*http.Cookie)
-	for _, cookie := range allCookies {
-		lastCookie[cookie.Name] = cookie
-	}
-
-	env.echo.GET("/trigger-refresh", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req2, rec2 := jsonRequest(http.MethodGet, "/trigger-refresh", nil)
-	for _, cookie := range lastCookie {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-func TestDoRefreshSession_SuccessfulRefresh_VerifyUpdatedAt(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	origMaxDuration := util.SessionMaxDuration
-	util.SessionMaxDuration = 86400 * 90 // 90 days
-	defer func() {
-		util.DisableLogin = origDisable
-		util.SessionMaxDuration = origMaxDuration
-	}()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Create a remember-me session, then in the same handler, manipulate it
-	// to look like it was updated 2 days ago (>24h threshold).
-	// IMPORTANT: we must only forward the LAST session cookie to avoid
-	// gorilla/sessions reading the first (unmanipulated) one.
-	env.echo.GET("/create-refresh-session", func(c echo.Context) error {
-		createSession(c, "refreshme", true, uint32(99999), true)
-
-		sess, _ := session.Get("session", c)
-		now := time.Now().UTC().Unix()
-		sess.Values["created_at"] = now - 259200 // 3 days ago
-		sess.Values["updated_at"] = now - 172800 // 2 days ago (well past 24h)
-		sess.Save(c.Request(), c.Response())
-
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-refresh-session", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	// Deduplicate cookies: keep only the LAST cookie for each name
-	// (gorilla/sessions picks the first match, and createSession + sess.Save
-	// both write a "session" cookie; we need the manipulated one)
-	allCookies := rec1.Result().Cookies()
-	lastCookie := make(map[string]*http.Cookie)
-	for _, cookie := range allCookies {
-		lastCookie[cookie.Name] = cookie
-	}
-
-	// Now call the RefreshSession middleware wrapping a simple handler
-	var handlerCalled bool
-	env.echo.GET("/refresh-middleware-test", RefreshSession(func(c echo.Context) error {
-		handlerCalled = true
-		return c.String(http.StatusOK, "refreshed")
-	}))
-
-	req2, rec2 := jsonRequest(http.MethodGet, "/refresh-middleware-test", nil)
-	for _, cookie := range lastCookie {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.True(t, handlerCalled, "next handler should be called after refresh")
-
-	// Verify the session was refreshed: response should contain a session_token cookie
-	refreshCookies := rec2.Result().Cookies()
-	foundRefresh := false
-	for _, cookie := range refreshCookies {
-		if cookie.Name == "session_token" {
-			foundRefresh = true
-			break
-		}
-	}
-	assert.True(t, foundRefresh, "doRefreshSession should emit a refreshed session_token cookie")
-}
-
 // --- Integration tests: createSession + isValidSession ---
 
 func TestCreateAndValidateSession(t *testing.T) {
@@ -650,7 +395,7 @@ func TestCreateAndValidateSession(t *testing.T) {
 
 	// Create a session
 	env.echo.GET("/create", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
+		createSession(c, "admin", true, uint32(12345))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -689,7 +434,7 @@ func TestIsValidSession_MismatchedCRC32(t *testing.T) {
 	util.DBUsersToCRC32Mutex.Unlock()
 
 	env.echo.GET("/create-mismatch", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
+		createSession(c, "admin", true, uint32(12345))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -721,300 +466,6 @@ func TestIsValidSession_MismatchedCRC32(t *testing.T) {
 	assert.False(t, valid, "Session should be invalid when CRC32 mismatches")
 }
 
-func TestValidSession_WithValidSession_PassesThrough(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Populate CRC32 map
-	util.DBUsersToCRC32Mutex.Lock()
-	util.DBUsersToCRC32["admin"] = uint32(12345)
-	util.DBUsersToCRC32Mutex.Unlock()
-	defer func() {
-		util.DBUsersToCRC32Mutex.Lock()
-		delete(util.DBUsersToCRC32, "admin")
-		util.DBUsersToCRC32Mutex.Unlock()
-	}()
-
-	// Create a session
-	env.echo.GET("/make-session", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/make-session", nil)
-	env.echo.ServeHTTP(rec1, req1)
-
-	// Now access a ValidSession-protected route
-	called := false
-	env.echo.GET("/protected-route", ValidSession(func(c echo.Context) error {
-		called = true
-		return c.String(http.StatusOK, "protected")
-	}))
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/protected-route", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.True(t, called, "ValidSession should pass through for valid session")
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-func TestDoRefreshSession_WithSession_NoRefreshNeeded(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Create a remember-me session
-	env.echo.GET("/create-for-refresh", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-for-refresh", nil)
-	env.echo.ServeHTTP(rec1, req1)
-
-	// Try to refresh immediately (should not refresh since <24h since creation)
-	env.echo.GET("/do-refresh-with-session", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-with-session", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-func TestValidSession_POST_NoNextURL(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.POST("/protected-post", ValidSession(func(c echo.Context) error {
-		return c.String(http.StatusOK, "ok")
-	}))
-
-	req, rec := jsonRequest(http.MethodPost, "/protected-post", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
-	// POST redirect should go to /login without ?next= parameter
-	location := rec.Header().Get("Location")
-	assert.Contains(t, location, "/login")
-}
-
-// --- doRefreshSession: session token mismatch ---
-
-func TestDoRefreshSession_TokenMismatch(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Create a remember-me session
-	env.echo.GET("/create-for-mismatch", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-for-mismatch", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	// Now tamper with the session_token cookie
-	env.echo.GET("/do-refresh-mismatch", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-mismatch", nil)
-	for _, cookie := range cookies {
-		if cookie.Name == "session_token" {
-			cookie.Value = "tampered-token"
-		}
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-	// The handler still returns OK, but the session was not refreshed
-}
-
-// --- doRefreshSession: no cookie at all ---
-
-func TestDoRefreshSession_NoCookie(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/do-refresh-no-cookie", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req, rec := jsonRequest(http.MethodGet, "/do-refresh-no-cookie", nil)
-	env.echo.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-// --- doRefreshSession: session past max duration ---
-
-func TestDoRefreshSession_PastMaxDuration(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	origMaxDuration := util.SessionMaxDuration
-	util.SessionMaxDuration = 100 // 100 seconds
-	defer func() {
-		util.DisableLogin = origDisable
-		util.SessionMaxDuration = origMaxDuration
-	}()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Create a session and manipulate it to be past max duration
-	env.echo.GET("/create-expired", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-
-		// Manipulate session: created long ago, past max duration
-		sess, _ := session.Get("session", c)
-		now := time.Now().UTC().Unix()
-		sess.Values["created_at"] = now - 200 // created 200s ago, max is 100s
-		sess.Values["updated_at"] = now - 90  // updated 90s ago
-		sess.Save(c.Request(), c.Response())
-
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-expired", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	env.echo.GET("/do-refresh-expired", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-expired", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-// --- doRefreshSession: updatedAt is in the future (corrupted) ---
-
-func TestDoRefreshSession_FutureUpdatedAt(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	origMaxDuration := util.SessionMaxDuration
-	util.SessionMaxDuration = 86400 * 90
-	defer func() {
-		util.DisableLogin = origDisable
-		util.SessionMaxDuration = origMaxDuration
-	}()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/create-future", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-
-		sess, _ := session.Get("session", c)
-		now := time.Now().UTC().Unix()
-		sess.Values["created_at"] = now - 172800
-		sess.Values["updated_at"] = now + 3600 // future timestamp
-		sess.Save(c.Request(), c.Response())
-
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-future", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	env.echo.GET("/do-refresh-future", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-future", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-// --- doRefreshSession: session expired (updatedAt + maxAge < now) ---
-
-func TestDoRefreshSession_Expired(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	origMaxDuration := util.SessionMaxDuration
-	util.SessionMaxDuration = 86400 * 90
-	defer func() {
-		util.DisableLogin = origDisable
-		util.SessionMaxDuration = origMaxDuration
-	}()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	env.echo.GET("/create-for-expire-test", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
-
-		// Manipulate session so that it's expired: updatedAt + maxAge < now
-		sess, _ := session.Get("session", c)
-		now := time.Now().UTC().Unix()
-		maxAge := sess.Values["max_age"].(int)
-		sess.Values["created_at"] = now - int64(maxAge) - 200
-		sess.Values["updated_at"] = now - int64(maxAge) - 100 // expired 100s ago
-		sess.Save(c.Request(), c.Response())
-
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/create-for-expire-test", nil)
-	env.echo.ServeHTTP(rec1, req1)
-	require.Equal(t, http.StatusOK, rec1.Code)
-
-	env.echo.GET("/do-refresh-expire-test", func(c echo.Context) error {
-		doRefreshSession(c)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-expire-test", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
 // --- createSession with custom SessionMaxDuration ---
 
 func TestCreateSession_WithSessionMaxDuration(t *testing.T) {
@@ -1031,7 +482,7 @@ func TestCreateSession_WithSessionMaxDuration(t *testing.T) {
 	util.DisableLogin = false
 
 	env.echo.GET("/create-with-duration", func(c echo.Context) error {
-		createSession(c, "duruser", true, uint32(44444), true)
+		createSession(c, "duruser", true, uint32(44444))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1043,7 +494,7 @@ func TestCreateSession_WithSessionMaxDuration(t *testing.T) {
 	for _, cookie := range rec.Result().Cookies() {
 		if cookie.Name == "session_token" {
 			assert.Equal(t, int(util.SessionMaxDuration), cookie.MaxAge,
-				"Cookie MaxAge should equal SessionMaxDuration when rememberMe is true")
+				"Cookie MaxAge should equal SessionMaxDuration")
 			break
 		}
 	}
@@ -1060,7 +511,7 @@ func TestIsAdmin_WithNonAdminSession(t *testing.T) {
 	util.DisableLogin = false
 
 	env.echo.GET("/setup-nonadmin", func(c echo.Context) error {
-		createSession(c, "regular", false, uint32(55555), false)
+		createSession(c, "regular", false, uint32(55555))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1093,7 +544,7 @@ func TestIsAdmin_WithAdminSession(t *testing.T) {
 	util.DisableLogin = false
 
 	env.echo.GET("/setup-admin-check", func(c echo.Context) error {
-		createSession(c, "adminuser", true, uint32(66666), false)
+		createSession(c, "adminuser", true, uint32(66666))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1132,7 +583,7 @@ func TestIsValidSession_ExpiredTimeBounds(t *testing.T) {
 
 	// Create a session with timestamps that will fail time bounds
 	env.echo.GET("/create-expired-session", func(c echo.Context) error {
-		createSession(c, "timeuser", true, uint32(77777), true)
+		createSession(c, "timeuser", true, uint32(77777))
 
 		// Manipulate: created 200s ago (past max duration of 100s)
 		sess, _ := session.Get("session", c)
@@ -1184,7 +635,7 @@ func TestIsValidSession_UserRemovedFromDB(t *testing.T) {
 	util.DBUsersToCRC32Mutex.Unlock()
 
 	env.echo.GET("/create-temp-session", func(c echo.Context) error {
-		createSession(c, "tempuser", false, uint32(54321), true)
+		createSession(c, "tempuser", false, uint32(54321))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1233,7 +684,7 @@ func TestIsValidSession_TemporarySession(t *testing.T) {
 
 	// Create session without remember-me (maxAge=0)
 	env.echo.GET("/create-temp-sess", func(c echo.Context) error {
-		createSession(c, "tempsess", false, uint32(11111), false)
+		createSession(c, "tempsess", false, uint32(11111))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1276,7 +727,7 @@ func TestClearSession_ThenInvalid(t *testing.T) {
 	}()
 
 	env.echo.GET("/create-clear-session", func(c echo.Context) error {
-		createSession(c, "clearme", true, uint32(22222), true)
+		createSession(c, "clearme", true, uint32(22222))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -1306,40 +757,6 @@ func TestClearSession_ThenInvalid(t *testing.T) {
 	}
 }
 
-func TestNeedsAdmin_WithAdminSession(t *testing.T) {
-	origDisable := util.DisableLogin
-	util.DisableLogin = false
-	defer func() { util.DisableLogin = origDisable }()
-
-	env := setupTestEnv(t)
-	util.DisableLogin = false
-
-	// Create an admin session
-	env.echo.GET("/setup-admin", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), false)
-		return c.String(http.StatusOK, "ok")
-	})
-
-	req1, rec1 := jsonRequest(http.MethodGet, "/setup-admin", nil)
-	env.echo.ServeHTTP(rec1, req1)
-
-	// Access admin-only route
-	called := false
-	env.echo.GET("/admin-page", NeedsAdmin(func(c echo.Context) error {
-		called = true
-		return c.String(http.StatusOK, "admin page")
-	}))
-
-	cookies := rec1.Result().Cookies()
-	req2, rec2 := jsonRequest(http.MethodGet, "/admin-page", nil)
-	for _, cookie := range cookies {
-		req2.AddCookie(cookie)
-	}
-	env.echo.ServeHTTP(rec2, req2)
-	assert.True(t, called)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
 func TestCurrentUser_WithRealSession(t *testing.T) {
 	origDisable := util.DisableLogin
 	util.DisableLogin = false
@@ -1350,7 +767,7 @@ func TestCurrentUser_WithRealSession(t *testing.T) {
 
 	// Create a session first
 	env.echo.GET("/setup-user", func(c echo.Context) error {
-		createSession(c, "testuser", false, uint32(111), false)
+		createSession(c, "testuser", false, uint32(111))
 		return c.String(http.StatusOK, "ok")
 	})
 

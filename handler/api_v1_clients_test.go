@@ -1140,7 +1140,7 @@ func TestCurrentUserEmail_UserNotFound(t *testing.T) {
 	var email string
 	env.echo.GET("/test-email-nf", func(c echo.Context) error {
 		// session has a username that doesn't exist in DB
-		createSession(c, "nonexistent", false, uint32(0), false)
+		createSession(c, "nonexistent", false, uint32(0))
 		email = currentUserEmail(c, env.db)
 		return c.String(http.StatusOK, "ok")
 	})
@@ -1163,7 +1163,7 @@ func TestCurrentUserEmail_UserExists(t *testing.T) {
 
 	var email string
 	env.echo.GET("/test-email-found", func(c echo.Context) error {
-		createSession(c, "emailuser", false, uint32(0), false)
+		createSession(c, "emailuser", false, uint32(0))
 		return c.String(http.StatusOK, "ok")
 	})
 	env.echo.GET("/read-email", func(c echo.Context) error {
@@ -1640,7 +1640,7 @@ func TestNonAdmin_ClientAccess(t *testing.T) {
 
 	// Register ALL routes before first ServeHTTP
 	env.echo.GET("/na-setup", func(c echo.Context) error {
-		createSession(c, "naviewer", false, crc, false)
+		createSession(c, "naviewer", false, crc)
 		return c.String(http.StatusOK, "ok")
 	})
 	env.echo.GET("/na-get/:id", APIGetClient(env.db))
@@ -1743,7 +1743,7 @@ func TestAPIEmailClient_NonAdmin_OtherClient(t *testing.T) {
 
 	// Register routes before any ServeHTTP
 	env.echo.GET("/email-na-setup", func(c echo.Context) error {
-		createSession(c, "emailna", false, crc, false)
+		createSession(c, "emailna", false, crc)
 		return c.String(http.StatusOK, "ok")
 	})
 	env.echo.POST("/email-deny/:id", APIEmailClient(env.db, mailer, "Subject", "Body"))
