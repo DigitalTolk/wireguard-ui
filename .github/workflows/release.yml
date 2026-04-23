@@ -152,27 +152,3 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: wireguard-ui-*.tar.gz
-
-  checksums:
-    needs: binaries
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download release assets
-        uses: robinraju/release-downloader@v1
-        with:
-          tag: ${{ github.ref_name }}
-          fileName: "wireguard-ui-*.tar.gz"
-          out-file-path: artifacts
-
-      - name: Generate checksums
-        run: |
-          cd artifacts
-          sha256sum wireguard-ui-*.tar.gz > checksums.txt
-          cat checksums.txt
-
-      - name: Upload checksums
-        uses: softprops/action-gh-release@v3
-        with:
-          files: artifacts/checksums.txt
