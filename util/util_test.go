@@ -513,26 +513,20 @@ func TestClientDefaultsFromEnv(t *testing.T) {
 	os.Unsetenv(DefaultClientAllowedIpsEnvVar)
 	os.Unsetenv(DefaultClientExtraAllowedIpsEnvVar)
 	os.Unsetenv(DefaultClientUseServerDNSEnvVar)
-	os.Unsetenv(DefaultClientEnableAfterCreationEnvVar)
-
 	defaults := ClientDefaultsFromEnv()
 	assert.Equal(t, []string{"0.0.0.0/0"}, defaults.AllowedIps)
 	assert.Equal(t, []string{}, defaults.ExtraAllowedIps)
 	assert.True(t, defaults.UseServerDNS)
-	assert.True(t, defaults.EnableAfterCreation)
 
 	// test with env overrides
 	os.Setenv(DefaultClientAllowedIpsEnvVar, "10.0.0.0/8,192.168.0.0/16")
 	os.Setenv(DefaultClientUseServerDNSEnvVar, "false")
-	os.Setenv(DefaultClientEnableAfterCreationEnvVar, "false")
 	defer os.Unsetenv(DefaultClientAllowedIpsEnvVar)
 	defer os.Unsetenv(DefaultClientUseServerDNSEnvVar)
-	defer os.Unsetenv(DefaultClientEnableAfterCreationEnvVar)
 
 	defaults = ClientDefaultsFromEnv()
 	assert.Equal(t, []string{"10.0.0.0/8", "192.168.0.0/16"}, defaults.AllowedIps)
 	assert.False(t, defaults.UseServerDNS)
-	assert.False(t, defaults.EnableAfterCreation)
 }
 
 func TestGetCurrentHash_WithMockStore(t *testing.T) {

@@ -1,6 +1,7 @@
 package sqlitedb
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/DigitalTolk/wireguard-ui/model"
 	"github.com/DigitalTolk/wireguard-ui/util"
@@ -389,12 +391,12 @@ func TestGetAllocatedIPs_ExcludeClient(t *testing.T) {
 	now := time.Now().UTC()
 
 	db.SaveClient(model.Client{
-		ID: "c1", AllocatedIPs: []string{"10.252.1.2/32"},
+		ID: "c1", Name: "Client A", AllocatedIPs: []string{"10.252.1.2/32"},
 		AllowedIPs: []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
 		CreatedAt: now, UpdatedAt: now,
 	})
 	db.SaveClient(model.Client{
-		ID: "c2", AllocatedIPs: []string{"10.252.1.3/32"},
+		ID: "c2", Name: "Client B", AllocatedIPs: []string{"10.252.1.3/32"},
 		AllowedIPs: []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
 		CreatedAt: now, UpdatedAt: now,
 	})
@@ -784,9 +786,9 @@ func TestMigrateFromJSON_FullMigration(t *testing.T) {
 	assert.Equal(t, "abc", hashes.Client)
 	assert.Equal(t, "def", hashes.Server)
 
-	user, err := db.GetUserByName("miguser")
-	require.NoError(t, err)
-	assert.Equal(t, "mig@test.com", user.Email)
+	// Users are no longer migrated (SSO-only auth makes legacy users useless)
+	_, err = db.GetUserByName("miguser")
+	assert.Error(t, err, "Legacy users should not be migrated")
 
 	clientData, err := db.GetClientByID("migclient", model.QRCodeSettings{Enabled: false})
 	require.NoError(t, err)
@@ -928,6 +930,703 @@ func TestGetClients_SearchByNotes(t *testing.T) {
 	clients, err := db.GetClients(false)
 	require.NoError(t, err)
 	assert.Len(t, clients, 2)
+}
+
+// --- migrate: public key derivation from private key ---
+
+func TestMigrate_DerivesPublicKeyFromPrivateKey(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	// Insert a client with a valid private key but empty public key
+	key, err := wgtypes.GeneratePrivateKey()
+	require.NoError(t, err)
+	now := time.Now().UTC()
+
+	_, err = db.db.Exec(
+		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email,
+		 subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
+		 endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at)
+		 VALUES (?, ?, '', '', 'Derive Test', 'derive@test.com', '[]', '[]', '[]', '[]', '', '', 0, 1, ?, ?)`,
+		"derive-test", key.String(), now, now,
+	)
+	require.NoError(t, err)
+
+	// Run migrate again to trigger public key derivation
+	db.migrate()
+
+	// Verify public key was derived
+	clientData, err := db.GetClientByID("derive-test", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, key.PublicKey().String(), clientData.Client.PublicKey)
+}
+
+func TestMigrate_SkipsInvalidPrivateKey(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	now := time.Now().UTC()
+
+	// Insert a client with an invalid private key and empty public key
+	_, err := db.db.Exec(
+		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email,
+		 subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
+		 endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at)
+		 VALUES (?, 'invalid-key', '', '', 'Bad Key', 'bad@test.com', '[]', '[]', '[]', '[]', '', '', 0, 1, ?, ?)`,
+		"bad-key-test", now, now,
+	)
+	require.NoError(t, err)
+
+	// Run migrate - should not error, just skip
+	db.migrate()
+
+	// Public key should remain empty
+	clientData, err := db.GetClientByID("bad-key-test", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Empty(t, clientData.Client.PublicKey)
+}
+
+// --- New error path test ---
+
+func TestNew_InvalidPath(t *testing.T) {
+	// Try to create a DB in a path that can't exist (null byte in path)
+	_, err := New("/dev/null/impossible/path/db.sqlite")
+	assert.Error(t, err)
+}
+
+// --- GetAllocatedIPs with multiple client IPs ---
+
+func TestGetAllocatedIPs_MultipleClientIPs(t *testing.T) {
+	db := initTestDB(t)
+	now := time.Now().UTC()
+
+	db.SaveClient(model.Client{
+		ID: "multi-ip", Name: "Multi IP",
+		AllocatedIPs:    []string{"10.252.1.10/32", "10.252.1.11/32"},
+		AllowedIPs:      []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	ips, err := db.GetAllocatedIPs("")
+	require.NoError(t, err)
+	assert.Contains(t, ips, "10.252.1.10")
+	assert.Contains(t, ips, "10.252.1.11")
+}
+
+func TestGetAllocatedIPs_NoClients(t *testing.T) {
+	db := initTestDB(t)
+
+	ips, err := db.GetAllocatedIPs("")
+	require.NoError(t, err)
+	// Should have at least server address
+	assert.NotEmpty(t, ips)
+}
+
+// --- Init with existing users (for CRC32 cache) ---
+
+func TestInit_CachesExistingUsers(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	// Save a user
+	now := time.Now().UTC()
+	db.SaveUser(model.User{Username: "cached", Email: "cached@test.com", Admin: true, OIDCSub: "sub-cache", CreatedAt: now, UpdatedAt: now})
+
+	// Re-init to trigger cache rebuild
+	require.NoError(t, db.Init())
+
+	util.DBUsersToCRC32Mutex.RLock()
+	_, ok := util.DBUsersToCRC32["cached"]
+	util.DBUsersToCRC32Mutex.RUnlock()
+	assert.True(t, ok, "User should be in CRC32 cache after Init")
+}
+
+// --- GetClients without QR code (no private key) ---
+
+func TestGetClients_WithoutQRCode(t *testing.T) {
+	db := initTestDB(t)
+	now := time.Now().UTC()
+
+	db.SaveClient(model.Client{
+		ID: "noqr", Name: "No QR", PublicKey: "pub1",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	clients, err := db.GetClients(false)
+	require.NoError(t, err)
+	assert.Len(t, clients, 1)
+	assert.Empty(t, clients[0].QRCode)
+}
+
+// --- Server interface with multiple addresses ---
+
+func TestGetServer_MultipleAddresses(t *testing.T) {
+	db := initTestDB(t)
+
+	iface := model.ServerInterface{
+		Addresses:  []string{"10.0.0.0/24", "fd00::1/64"},
+		ListenPort: 51820,
+		UpdatedAt:  time.Now().UTC(),
+	}
+	require.NoError(t, db.SaveServerInterface(iface))
+
+	server, err := db.GetServer()
+	require.NoError(t, err)
+	assert.Len(t, server.Interface.Addresses, 2)
+	assert.Contains(t, server.Interface.Addresses, "10.0.0.0/24")
+	assert.Contains(t, server.Interface.Addresses, "fd00::1/64")
+}
+
+// --- GetAllocatedIPs edge cases ---
+
+func TestGetAllocatedIPs_ExcludeNonExistentClient(t *testing.T) {
+	db := initTestDB(t)
+	now := time.Now().UTC()
+
+	db.SaveClient(model.Client{
+		ID: "c1", Name: "Client",
+		AllocatedIPs:    []string{"10.252.1.5/32"},
+		AllowedIPs:      []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Exclude a non-existent client - should still return all IPs
+	ips, err := db.GetAllocatedIPs("nonexistent")
+	require.NoError(t, err)
+	assert.Contains(t, ips, "10.252.1.5")
+}
+
+// --- SaveClient with all fields populated ---
+
+func TestSaveClient_AllFields(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now().UTC()
+
+	client := model.Client{
+		ID:              "full-client",
+		Name:            "Full Client",
+		Email:           "full@test.com",
+		PublicKey:        "fullpub",
+		PrivateKey:       "fullpriv",
+		PresharedKey:     "fullpsk",
+		AllocatedIPs:     []string{"10.0.0.2/32", "10.0.0.3/32"},
+		AllowedIPs:       []string{"0.0.0.0/0", "::/0"},
+		ExtraAllowedIPs:  []string{"192.168.1.0/24"},
+		SubnetRanges:     []string{"range1"},
+		Endpoint:         "vpn.example.com:51820",
+		AdditionalNotes:  "Test notes\nLine 2",
+		UseServerDNS:     true,
+		Enabled:          true,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+
+	err := db.SaveClient(client)
+	require.NoError(t, err)
+
+	got, err := db.GetClientByID("full-client", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, "Full Client", got.Client.Name)
+	assert.Equal(t, "full@test.com", got.Client.Email)
+	assert.Equal(t, []string{"10.0.0.2/32", "10.0.0.3/32"}, got.Client.AllocatedIPs)
+	assert.Equal(t, []string{"0.0.0.0/0", "::/0"}, got.Client.AllowedIPs)
+	assert.Equal(t, []string{"192.168.1.0/24"}, got.Client.ExtraAllowedIPs)
+	assert.Equal(t, []string{"range1"}, got.Client.SubnetRanges)
+	assert.Equal(t, "vpn.example.com:51820", got.Client.Endpoint)
+	assert.True(t, got.Client.UseServerDNS)
+}
+
+// --- Migrate with no missing keys (no-op path) ---
+
+func TestMigrate_NoMissingKeys(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	// All clients already have public keys - migrate should be a no-op
+	now := time.Now().UTC()
+	db.SaveClient(model.Client{
+		ID: "has-key", Name: "Has Key", PublicKey: "pubexists", PrivateKey: "privexists",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Running migrate again should not change anything
+	db.migrate()
+
+	got, err := db.GetClientByID("has-key", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, "pubexists", got.Client.PublicKey)
+}
+
+// --- GetWakeOnLanHosts with many hosts ---
+
+func TestGetWakeOnLanHosts_ManyHosts(t *testing.T) {
+	db := initTestDB(t)
+
+	for i := 1; i <= 5; i++ {
+		mac := fmt.Sprintf("AA:BB:CC:DD:%02X:%02X", i/256, i%256)
+		db.SaveWakeOnLanHost(model.WakeOnLanHost{MacAddress: mac, Name: fmt.Sprintf("Host%d", i)})
+	}
+
+	hosts, err := db.GetWakeOnLanHosts()
+	require.NoError(t, err)
+	assert.Len(t, hosts, 5)
+}
+
+// --- GetUsers with multiple users ---
+
+func TestGetUsers_Multiple(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now().UTC()
+
+	db.SaveUser(model.User{Username: "u1", Email: "u1@test.com", OIDCSub: "sub-u1", Admin: true, CreatedAt: now, UpdatedAt: now})
+	db.SaveUser(model.User{Username: "u2", Email: "u2@test.com", OIDCSub: "sub-u2", Admin: false, CreatedAt: now, UpdatedAt: now})
+	db.SaveUser(model.User{Username: "u3", Email: "u3@test.com", OIDCSub: "sub-u3", Admin: false, CreatedAt: now, UpdatedAt: now})
+	db.SaveUser(model.User{Username: "u4", Email: "u4@test.com", OIDCSub: "sub-u4", Admin: true, CreatedAt: now, UpdatedAt: now})
+
+	users, err := db.GetUsers()
+	require.NoError(t, err)
+	assert.Len(t, users, 4)
+
+	// Verify all fields are populated
+	for _, u := range users {
+		assert.NotEmpty(t, u.Username)
+		assert.NotEmpty(t, u.Email)
+		assert.False(t, u.CreatedAt.IsZero())
+		assert.False(t, u.UpdatedAt.IsZero())
+	}
+}
+
+func TestGetUsers_Empty(t *testing.T) {
+	db := newTestDB(t)
+
+	users, err := db.GetUsers()
+	require.NoError(t, err)
+	assert.Nil(t, users) // no users -> nil slice
+}
+
+// --- Double Init idempotency with data ---
+
+func TestInit_Idempotent_WithData(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	// Save some data
+	now := time.Now().UTC()
+	db.SaveClient(model.Client{
+		ID: "idempotent-test", Name: "Idempotent",
+		AllocatedIPs: []string{"10.252.1.100/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Init again - should not lose data
+	require.NoError(t, db.Init())
+
+	// Verify client is still there
+	cd, err := db.GetClientByID("idempotent-test", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, "Idempotent", cd.Client.Name)
+
+	// Verify server config is still intact
+	server, err := db.GetServer()
+	require.NoError(t, err)
+	assert.NotEmpty(t, server.KeyPair.PublicKey)
+}
+
+// --- GetAllocatedIPs with IPv6 ---
+
+func TestGetAllocatedIPs_WithIPv6(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	os.Setenv("WGUI_SERVER_INTERFACE_ADDRESSES", "10.252.1.0/24,fd00::1/64")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+	defer os.Unsetenv("WGUI_SERVER_INTERFACE_ADDRESSES")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	now := time.Now().UTC()
+	db.SaveClient(model.Client{
+		ID: "ipv6-client", Name: "IPv6 Client",
+		AllocatedIPs:    []string{"10.252.1.5/32", "fd00::5/128"},
+		AllowedIPs:      []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	ips, err := db.GetAllocatedIPs("")
+	require.NoError(t, err)
+	assert.Contains(t, ips, "10.252.1.5")
+	assert.Contains(t, ips, "fd00::5")
+	// Should also contain server IPs
+	assert.Contains(t, ips, "10.252.1.0")
+	assert.Contains(t, ips, "fd00::1")
+}
+
+// --- GetGlobalSettings after update ---
+
+func TestGetGlobalSettings_AfterUpdate(t *testing.T) {
+	db := initTestDB(t)
+
+	gs := model.GlobalSetting{
+		EndpointAddress:     "updated.vpn.com",
+		DNSServers:          []string{"1.1.1.1", "1.0.0.1"},
+		MTU:                 1300,
+		PersistentKeepalive: 30,
+		FirewallMark:        "0xbeef",
+		Table:               "100",
+		ConfigFilePath:      "/custom/wg.conf",
+		UpdatedAt:           time.Now().UTC(),
+	}
+	require.NoError(t, db.SaveGlobalSettings(gs))
+
+	got, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "updated.vpn.com", got.EndpointAddress)
+	assert.Equal(t, []string{"1.1.1.1", "1.0.0.1"}, got.DNSServers)
+	assert.Equal(t, 1300, got.MTU)
+	assert.Equal(t, 30, got.PersistentKeepalive)
+	assert.Equal(t, "0xbeef", got.FirewallMark)
+	assert.Equal(t, "100", got.Table)
+	assert.Equal(t, "/custom/wg.conf", got.ConfigFilePath)
+}
+
+// --- GetServer after updates ---
+
+func TestGetServer_AfterInterfaceAndKeypairUpdates(t *testing.T) {
+	db := initTestDB(t)
+
+	now := time.Now().UTC()
+	iface := model.ServerInterface{
+		Addresses:  []string{"172.16.0.0/16"},
+		ListenPort: 12345,
+		PostUp:     "iptup",
+		PreDown:    "iptpre",
+		PostDown:   "iptdown",
+		UpdatedAt:  now,
+	}
+	require.NoError(t, db.SaveServerInterface(iface))
+
+	kp := model.ServerKeypair{
+		PrivateKey: "serverprivkey",
+		PublicKey:  "serverpubkey",
+		UpdatedAt:  now,
+	}
+	require.NoError(t, db.SaveServerKeyPair(kp))
+
+	server, err := db.GetServer()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"172.16.0.0/16"}, server.Interface.Addresses)
+	assert.Equal(t, 12345, server.Interface.ListenPort)
+	assert.Equal(t, "iptup", server.Interface.PostUp)
+	assert.Equal(t, "iptpre", server.Interface.PreDown)
+	assert.Equal(t, "iptdown", server.Interface.PostDown)
+	assert.Equal(t, "serverprivkey", server.KeyPair.PrivateKey)
+	assert.Equal(t, "serverpubkey", server.KeyPair.PublicKey)
+}
+
+// --- MigrateFromJSON with valid clients and WoL hosts ---
+
+func TestMigrateFromJSON_MultipleClients(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Create clients directory with multiple clients
+	clientsDir := filepath.Join(jsonDBPath, "clients")
+	require.NoError(t, os.MkdirAll(clientsDir, 0755))
+
+	for i := 1; i <= 3; i++ {
+		clientJSON := fmt.Sprintf(`{"id":"migclient%d","name":"Mig Client %d","public_key":"migclientpub%d","allocated_ips":["10.0.0.%d/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`, i, i, i, i+1)
+		require.NoError(t, os.WriteFile(filepath.Join(clientsDir, fmt.Sprintf("client%d.json", i)), []byte(clientJSON), 0644))
+	}
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+
+	clients, err := db.GetClients(false)
+	require.NoError(t, err)
+	assert.Len(t, clients, 3)
+}
+
+func TestMigrateFromJSON_InvalidKeypairJSON(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Valid interfaces.json
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+
+	// Invalid keypair.json
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "keypair.json"),
+		[]byte("{invalid}"), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "keypair")
+}
+
+func TestMigrateFromJSON_InvalidGlobalSettingsJSON(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Valid interfaces and keypair
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "keypair.json"),
+		[]byte(`{"private_key":"pk","public_key":"pub"}`), 0644))
+
+	// Invalid global_settings.json
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "global_settings.json"),
+		[]byte("{invalid}"), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "global settings")
+}
+
+func TestMigrateFromJSON_InvalidHashesJSON(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Valid interfaces, keypair, global_settings
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "keypair.json"),
+		[]byte(`{"private_key":"pk","public_key":"pub"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "global_settings.json"),
+		[]byte(`{"endpoint_address":"10.0.0.1","dns_servers":["8.8.8.8"],"mtu":"1420","persistent_keepalive":"25"}`), 0644))
+
+	// Invalid hashes.json
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "hashes.json"),
+		[]byte("{invalid}"), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "hashes")
+}
+
+// --- SaveHashes and read back ---
+
+func TestSaveHashes_MultipleTimes(t *testing.T) {
+	db := initTestDB(t)
+
+	h1 := model.ClientServerHashes{Client: "hash1c", Server: "hash1s"}
+	require.NoError(t, db.SaveHashes(h1))
+
+	got1, err := db.GetHashes()
+	require.NoError(t, err)
+	assert.Equal(t, "hash1c", got1.Client)
+	assert.Equal(t, "hash1s", got1.Server)
+
+	h2 := model.ClientServerHashes{Client: "hash2c", Server: "hash2s"}
+	require.NoError(t, db.SaveHashes(h2))
+
+	got2, err := db.GetHashes()
+	require.NoError(t, err)
+	assert.Equal(t, "hash2c", got2.Client)
+	assert.Equal(t, "hash2s", got2.Server)
+}
+
+func TestMigrateFromJSON_RenameFailure(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Create the backup path as a non-empty directory so rename fails
+	backupPath := jsonDBPath + ".json.bak"
+	require.NoError(t, os.MkdirAll(filepath.Join(backupPath, "blocker"), 0755))
+
+	// Run migration - should succeed even if rename fails (rename failure is a warning)
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+}
+
+// --- MigrateFromJSON: missing interfaces.json (skip) ---
+
+func TestMigrateFromJSON_MissingInterfacesJSON(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// No interfaces.json - should skip gracefully
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+}
+
+// --- MigrateFromJSON: missing keypair.json (skip) ---
+
+func TestMigrateFromJSON_MissingKeypairJSON(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Create valid interfaces but skip keypair
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+
+	// No keypair.json - should skip gracefully
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+}
+
+// --- MigrateFromJSON: missing global_settings.json (skip) ---
+
+func TestMigrateFromJSON_MissingGlobalSettings(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// interfaces + keypair but no global_settings
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "keypair.json"),
+		[]byte(`{"private_key":"pk","public_key":"pub"}`), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+}
+
+// --- MigrateFromJSON: missing hashes.json (skip) ---
+
+func TestMigrateFromJSON_MissingHashes(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// All server files except hashes
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "interfaces.json"),
+		[]byte(`{"addresses":["10.0.0.1/24"],"listen_port":"51820"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "keypair.json"),
+		[]byte(`{"private_key":"pk","public_key":"pub"}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(serverDir, "global_settings.json"),
+		[]byte(`{"endpoint_address":"10.0.0.1","dns_servers":["8.8.8.8"],"mtu":"1420","persistent_keepalive":"25"}`), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+}
+
+func TestMigrateFromJSON_WolHostSaveFailure(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Create WoL host with empty MAC address (valid JSON but SaveWakeOnLanHost fails)
+	wolDir := filepath.Join(jsonDBPath, "wake_on_lan_hosts")
+	require.NoError(t, os.MkdirAll(wolDir, 0755))
+	wolJSON := `{"MacAddress":"","Name":"Bad Host"}`
+	require.NoError(t, os.WriteFile(filepath.Join(wolDir, "bad.json"), []byte(wolJSON), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "WoL host")
+}
+
+func TestMigrateFromJSON_ClientSaveFailure(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	// Create a first valid client
+	clientsDir := filepath.Join(jsonDBPath, "clients")
+	require.NoError(t, os.MkdirAll(clientsDir, 0755))
+	clientJSON1 := `{"id":"dup1","name":"DupClient","public_key":"pub1","allocated_ips":[],"allowed_ips":[],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`
+	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client1.json"), []byte(clientJSON1), 0644))
+
+	// Create a second client with duplicate name (unique index on name will cause failure)
+	clientJSON2 := `{"id":"dup2","name":"DupClient","public_key":"pub2","allocated_ips":[],"allowed_ips":[],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`
+	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client2.json"), []byte(clientJSON2), 0644))
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "migrate client")
 }
 
 func TestMigrateFromJSON_SkipsNonJSON(t *testing.T) {

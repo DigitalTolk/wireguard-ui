@@ -26,7 +26,7 @@ func APIGetServer(db store.IStore) echo.HandlerFunc {
 }
 
 // APIUpdateServerInterface updates server interface settings
-func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
+func APIUpdateServerInterface(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var serverInterface model.ServerInterface
 		if err := c.Bind(&serverInterface); err != nil {
@@ -52,6 +52,7 @@ func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, "Cannot save server interface")
 		}
 
+		cw.Trigger()
 		log.Infof("Updated server interfaces: %v", serverInterface)
 		auditLogEvent(c, "server.interface.update", "server", "interface", map[string]interface{}{
 			"before": oldServer.Interface,
@@ -62,7 +63,7 @@ func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
 }
 
 // APIRegenerateServerKeypair generates a new server keypair
-func APIRegenerateServerKeypair(db store.IStore) echo.HandlerFunc {
+func APIRegenerateServerKeypair(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		key, err := wgtypes.GeneratePrivateKey()
 		if err != nil {
@@ -79,6 +80,7 @@ func APIRegenerateServerKeypair(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, "Cannot save server keypair")
 		}
 
+		cw.Trigger()
 		log.Infof("Regenerated server keypair")
 		auditLogEvent(c, "server.keypair.regenerate", "server", "keypair", nil)
 		return c.JSON(http.StatusOK, kp)
@@ -97,7 +99,7 @@ func APIGetSettings(db store.IStore) echo.HandlerFunc {
 }
 
 // APIUpdateSettings updates global settings
-func APIUpdateSettings(db store.IStore) echo.HandlerFunc {
+func APIUpdateSettings(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var settings model.GlobalSetting
 		if err := c.Bind(&settings); err != nil {
@@ -131,6 +133,7 @@ func APIUpdateSettings(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, "Cannot save global settings")
 		}
 
+		cw.Trigger()
 		log.Infof("Updated global settings")
 		auditLogEvent(c, "settings.update", "settings", "global", map[string]interface{}{
 			"before": oldSettings,

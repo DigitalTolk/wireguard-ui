@@ -10,7 +10,7 @@ describe("ServerPage", () => {
     cleanup?.();
   });
 
-  it("shows heading and apply button", async () => {
+  it("shows heading and save button", async () => {
     cleanup = mockFetch({
       "/server": {
         Interface: { addresses: ["10.0.0.1/24"], listen_port: 51820 },
@@ -20,7 +20,7 @@ describe("ServerPage", () => {
     renderWithProviders(<ServerPage />);
     await waitFor(() => {
       expect(screen.getByText("Server Configuration")).toBeInTheDocument();
-      expect(screen.getByText("Apply Config")).toBeInTheDocument();
+      expect(screen.getByText("Save")).toBeInTheDocument();
     });
   });
 

@@ -2,12 +2,15 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -15,14 +18,47 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/DigitalTolk/wireguard-ui/audit"
+	"github.com/DigitalTolk/wireguard-ui/model"
 	"github.com/DigitalTolk/wireguard-ui/store/sqlitedb"
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
+
+// errStore is a mock store that returns errors for all read methods.
+// This is used to test error paths in handler functions.
+type errStore struct{}
+
+func (e *errStore) Init() error                                              { return fmt.Errorf("db error") }
+func (e *errStore) GetUsers() ([]model.User, error)                         { return nil, fmt.Errorf("db error") }
+func (e *errStore) GetUserByName(string) (model.User, error)                { return model.User{}, fmt.Errorf("db error") }
+func (e *errStore) GetUserByOIDCSub(string) (model.User, error)             { return model.User{}, fmt.Errorf("db error") }
+func (e *errStore) SaveUser(model.User) error                               { return fmt.Errorf("db error") }
+func (e *errStore) DeleteUser(string) error                                  { return fmt.Errorf("db error") }
+func (e *errStore) GetGlobalSettings() (model.GlobalSetting, error)         { return model.GlobalSetting{}, fmt.Errorf("db error") }
+func (e *errStore) GetServer() (model.Server, error)                        { return model.Server{}, fmt.Errorf("db error") }
+func (e *errStore) GetClients(bool) ([]model.ClientData, error)             { return nil, fmt.Errorf("db error") }
+func (e *errStore) GetClientByID(string, model.QRCodeSettings) (model.ClientData, error) {
+	return model.ClientData{}, fmt.Errorf("db error")
+}
+func (e *errStore) SaveClient(model.Client) error                           { return fmt.Errorf("db error") }
+func (e *errStore) DeleteClient(string) error                               { return fmt.Errorf("db error") }
+func (e *errStore) SaveServerInterface(model.ServerInterface) error          { return fmt.Errorf("db error") }
+func (e *errStore) SaveServerKeyPair(model.ServerKeypair) error              { return fmt.Errorf("db error") }
+func (e *errStore) SaveGlobalSettings(model.GlobalSetting) error             { return fmt.Errorf("db error") }
+func (e *errStore) GetAllocatedIPs(string) ([]string, error)                { return nil, fmt.Errorf("db error") }
+func (e *errStore) GetWakeOnLanHosts() ([]model.WakeOnLanHost, error)       { return nil, fmt.Errorf("db error") }
+func (e *errStore) GetWakeOnLanHost(string) (*model.WakeOnLanHost, error)   { return nil, fmt.Errorf("db error") }
+func (e *errStore) DeleteWakeOnHostLanHost(string) error                     { return fmt.Errorf("db error") }
+func (e *errStore) SaveWakeOnLanHost(model.WakeOnLanHost) error              { return fmt.Errorf("db error") }
+func (e *errStore) DeleteWakeOnHost(model.WakeOnLanHost) error               { return fmt.Errorf("db error") }
+func (e *errStore) GetPath() string                                          { return "/tmp" }
+func (e *errStore) SaveHashes(model.ClientServerHashes) error                { return fmt.Errorf("db error") }
+func (e *errStore) GetHashes() (model.ClientServerHashes, error)             { return model.ClientServerHashes{}, fmt.Errorf("db error") }
 
 type testEnv struct {
 	db       *sqlitedb.SqliteDB
 	auditLog *audit.Logger
 	echo     *echo.Echo
+	cw       *ConfigWriter
 }
 
 func setupTestEnv(t *testing.T) *testEnv {
@@ -48,7 +84,16 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	util.DisableLogin = true // simplify testing
 
-	return &testEnv{db: db, auditLog: auditLog, echo: e}
+	// config writer with very long delay so tests don't trigger real writes
+	tmplFS := fs.FS(os.DirFS(filepath.Join("..", "templates")))
+	cw := NewConfigWriter(db, tmplFS, 24*time.Hour)
+
+	// set config file path to temp dir so any accidental writes don't fail
+	gs, _ := db.GetGlobalSettings()
+	gs.ConfigFilePath = filepath.Join(dir, "wg0.conf")
+	db.SaveGlobalSettings(gs)
+
+	return &testEnv{db: db, auditLog: auditLog, echo: e, cw: cw}
 }
 
 func jsonRequest(method, path string, body interface{}) (*http.Request, *httptest.ResponseRecorder) {

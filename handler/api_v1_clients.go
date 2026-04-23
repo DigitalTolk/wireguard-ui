@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/base64"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"sort"
 	"strings"
@@ -51,12 +50,32 @@ func connectedPeerKeys() map[string]bool {
 	return keys
 }
 
+// currentUserEmail returns the email of the currently logged-in user by looking up
+// the session username in the database. Returns "" if unavailable.
+func currentUserEmail(c echo.Context, db store.IStore) string {
+	username := currentUser(c)
+	if username == "" {
+		return ""
+	}
+	user, err := db.GetUserByName(username)
+	if err != nil {
+		return ""
+	}
+	return user.Email
+}
+
 // APIListClients returns all WireGuard clients
 func APIListClients(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientDataList, err := db.GetClients(false)
 		if err != nil {
 			return apiInternalError(c, fmt.Sprintf("Cannot get client list: %v", err))
+		}
+
+		admin := isAdmin(c)
+		var userEmail string
+		if !admin {
+			userEmail = currentUserEmail(c, db)
 		}
 
 		search := strings.ToLower(c.QueryParam("search"))
@@ -72,6 +91,11 @@ func APIListClients(db store.IStore) echo.HandlerFunc {
 		for _, clientData := range clientDataList {
 			clientData = util.FillClientSubnetRange(clientData)
 			cl := clientData.Client
+
+			// Non-admin users can only see clients matching their email
+			if !admin && !strings.EqualFold(cl.Email, userEmail) {
+				continue
+			}
 
 			// filter by status
 			if status == "enabled" && !cl.Enabled {
@@ -115,12 +139,21 @@ func APIGetClient(db store.IStore) echo.HandlerFunc {
 		if err != nil {
 			return apiNotFound(c, "Client not found")
 		}
+
+		// Non-admin users can only access their own clients
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
+		}
+
 		return c.JSON(http.StatusOK, util.FillClientSubnetRange(clientData))
 	}
 }
 
 // APICreateClient creates a new WireGuard client
-func APICreateClient(db store.IStore) echo.HandlerFunc {
+func APICreateClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var client model.Client
 		if err := c.Bind(&client); err != nil {
@@ -130,6 +163,10 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 		// validate email is required
 		if strings.TrimSpace(client.Email) == "" {
 			return apiBadRequest(c, "Email is required")
+		}
+
+		if strings.TrimSpace(client.Name) == "" {
+			return apiBadRequest(c, "Name is required")
 		}
 
 		server, err := db.GetServer()
@@ -155,6 +192,17 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Extra AllowedIPs must be in CIDR format")
 		}
 
+		// validate name + public key uniqueness in one pass
+		existingClients, _ := db.GetClients(false)
+		for _, ec := range existingClients {
+			if strings.EqualFold(ec.Client.Name, client.Name) {
+				return apiBadRequest(c, "A client with this name already exists")
+			}
+			if client.PublicKey != "" && ec.Client.PublicKey == client.PublicKey {
+				return apiBadRequest(c, "Duplicate public key")
+			}
+		}
+
 		// generate ID
 		client.ID = xid.New().String()
 
@@ -169,16 +217,6 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 		} else {
 			if _, err := wgtypes.ParseKey(client.PublicKey); err != nil {
 				return apiBadRequest(c, "Cannot verify WireGuard public key")
-			}
-			// check duplicates
-			clients, err := db.GetClients(false)
-			if err != nil {
-				return apiInternalError(c, "Cannot check for duplicate keys")
-			}
-			for _, other := range clients {
-				if other.Client.PublicKey == client.PublicKey {
-					return apiBadRequest(c, "Duplicate public key")
-				}
 			}
 		}
 
@@ -198,6 +236,7 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 			}
 		}
 
+		client.Enabled = true
 		client.CreatedAt = time.Now().UTC()
 		client.UpdatedAt = client.CreatedAt
 
@@ -205,6 +244,7 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, err.Error())
 		}
 
+		cw.Trigger()
 		log.Infof("Created wireguard client: %v", client.Name)
 		auditLogEvent(c, "client.create", "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusCreated, client)
@@ -212,7 +252,7 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 }
 
 // APIUpdateClient updates an existing client
-func APIUpdateClient(db store.IStore) echo.HandlerFunc {
+func APIUpdateClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientID := c.Param("id")
 		if _, err := xid.FromString(clientID); err != nil {
@@ -227,6 +267,10 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
 		if err != nil {
 			return apiNotFound(c, "Client not found")
+		}
+
+		if strings.TrimSpace(_client.Name) == "" {
+			return apiBadRequest(c, "Name is required")
 		}
 
 		server, err := db.GetServer()
@@ -252,23 +296,30 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Extra Allowed IPs must be in CIDR format")
 		}
 
-		// handle public key change
-		if client.PublicKey != _client.PublicKey && _client.PublicKey != "" {
-			if _, err := wgtypes.ParseKey(_client.PublicKey); err != nil {
-				return apiBadRequest(c, "Cannot verify WireGuard public key")
-			}
-			clients, err := db.GetClients(false)
-			if err != nil {
-				return apiInternalError(c, "Cannot check for duplicate keys")
-			}
-			for _, other := range clients {
-				if other.Client.PublicKey == _client.PublicKey {
+		// validate name + public key uniqueness in one pass (skip self)
+		nameChanged := !strings.EqualFold(_client.Name, client.Name)
+		pubKeyChanged := _client.PublicKey != "" && client.PublicKey != _client.PublicKey
+		if nameChanged || pubKeyChanged {
+			existingClients, _ := db.GetClients(false)
+			for _, ec := range existingClients {
+				if ec.Client.ID == client.ID {
+					continue
+				}
+				if nameChanged && strings.EqualFold(ec.Client.Name, _client.Name) {
+					return apiBadRequest(c, "A client with this name already exists")
+				}
+				if pubKeyChanged && ec.Client.PublicKey == _client.PublicKey {
 					return apiBadRequest(c, "Duplicate public key")
 				}
 			}
-			if client.PrivateKey != "" {
-				client.PrivateKey = ""
+		}
+
+		// validate public key format if changed
+		if pubKeyChanged {
+			if _, err := wgtypes.ParseKey(_client.PublicKey); err != nil {
+				return apiBadRequest(c, "Cannot verify WireGuard public key")
 			}
+			client.PrivateKey = ""
 		}
 
 		// handle preshared key change
@@ -295,6 +346,7 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, err.Error())
 		}
 
+		cw.Trigger()
 		log.Infof("Updated client: %v", client.Name)
 		auditLogEvent(c, "client.update", "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusOK, client)
@@ -302,7 +354,7 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 }
 
 // APIPatchClientStatus enables/disables a client
-func APIPatchClientStatus(db store.IStore) echo.HandlerFunc {
+func APIPatchClientStatus(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientID := c.Param("id")
 		if _, err := xid.FromString(clientID); err != nil {
@@ -331,6 +383,7 @@ func APIPatchClientStatus(db store.IStore) echo.HandlerFunc {
 		if body.Enabled {
 			action = "client.enable"
 		}
+		cw.Trigger()
 		log.Infof("Changed client %s enabled status to %v", client.ID, body.Enabled)
 		auditLogEvent(c, action, "client", client.ID, map[string]string{"name": client.Name, "email": client.Email})
 		return c.JSON(http.StatusOK, client)
@@ -338,7 +391,7 @@ func APIPatchClientStatus(db store.IStore) echo.HandlerFunc {
 }
 
 // APIDeleteClient deletes a client
-func APIDeleteClient(db store.IStore) echo.HandlerFunc {
+func APIDeleteClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientID := c.Param("id")
 		if _, err := xid.FromString(clientID); err != nil {
@@ -349,6 +402,7 @@ func APIDeleteClient(db store.IStore) echo.HandlerFunc {
 			return apiInternalError(c, "Cannot delete client")
 		}
 
+		cw.Trigger()
 		log.Infof("Deleted wireguard client: %s", clientID)
 		auditLogEvent(c, "client.delete", "client", clientID, nil)
 		return c.NoContent(http.StatusNoContent)
@@ -366,6 +420,14 @@ func APIDownloadClientConfig(db store.IStore) echo.HandlerFunc {
 		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
 		if err != nil {
 			return apiNotFound(c, "Client not found")
+		}
+
+		// Non-admin users can only download their own configs
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
 		}
 
 		server, err := db.GetServer()
@@ -397,6 +459,14 @@ func APIGetClientQRCode(db store.IStore) echo.HandlerFunc {
 			return apiNotFound(c, "Client not found")
 		}
 
+		// Non-admin users can only view their own QR codes
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
+		}
+
 		return c.JSON(http.StatusOK, map[string]string{
 			"qr_code": clientData.QRCode,
 		})
@@ -422,6 +492,14 @@ func APIEmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, email
 		clientData, err := db.GetClientByID(clientID, qrCodeSettings)
 		if err != nil {
 			return apiNotFound(c, "Client not found")
+		}
+
+		// Non-admin users can only email their own configs
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
 		}
 
 		server, _ := db.GetServer()
@@ -538,7 +616,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 		LastHandshakeRel  time.Duration `json:"last_handshake_rel"`
 		Connected         bool          `json:"connected"`
 		AllocatedIP       string        `json:"allocated_ip"`
-		Endpoint          string        `json:"endpoint,omitempty"`
+		Endpoint          string        `json:"endpoint"`
 	}
 
 	type DeviceStatus struct {
@@ -589,7 +667,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 					}
 					p.Connected = p.LastHandshakeRel < connectedThreshold
 
-					if isAdmin(c) && devices[i].Peers[j].Endpoint != nil {
+					if devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
 					}
 
@@ -609,32 +687,11 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 	}
 }
 
-// APIApplyServerConfig writes the wg0.conf and updates hashes
-func APIApplyServerConfig(db store.IStore, tmplDir fs.FS) echo.HandlerFunc {
+// APIApplyServerConfig forces an immediate config write, bypassing debounce
+func APIApplyServerConfig(cw *ConfigWriter) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		server, err := db.GetServer()
-		if err != nil {
-			return apiInternalError(c, "Cannot get server config")
-		}
-		clients, err := db.GetClients(false)
-		if err != nil {
-			return apiInternalError(c, "Cannot get client config")
-		}
-		users, err := db.GetUsers()
-		if err != nil {
-			return apiInternalError(c, "Cannot get users config")
-		}
-		settings, err := db.GetGlobalSettings()
-		if err != nil {
-			return apiInternalError(c, "Cannot get global settings")
-		}
-
-		if err := util.WriteWireGuardServerConfig(tmplDir, server, clients, users, settings); err != nil {
+		if err := cw.ApplyNow(); err != nil {
 			return apiInternalError(c, fmt.Sprintf("Cannot apply config: %v", err))
-		}
-
-		if err := util.UpdateHashes(db); err != nil {
-			return apiInternalError(c, fmt.Sprintf("Cannot update hashes: %v", err))
 		}
 
 		auditLogEvent(c, "server.config.apply", "server", "config", nil)

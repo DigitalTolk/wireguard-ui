@@ -67,6 +67,7 @@ func APIGetMe(db store.IStore) echo.HandlerFunc {
 // APILogout destroys the current session
 func APILogout() echo.HandlerFunc {
 	return func(c echo.Context) error {
+		auditLogEvent(c, "user.logout", "user", "", nil)
 		clearSession(c)
 		return c.JSON(http.StatusOK, map[string]interface{}{
 			"message": "Logged out successfully",

@@ -3,6 +3,9 @@ import { screen, waitFor } from "@testing-library/react";
 import { renderWithProviders, mockFetch } from "@/test/test-utils";
 import { ClientsPage } from "./ClientsPage";
 
+const adminMe = { username: "admin", email: "admin@test.com", display_name: "Admin", admin: true };
+const userMe = { username: "user", email: "user@test.com", display_name: "User", admin: false };
+
 describe("ClientsPage", () => {
   let cleanup: () => void;
 
@@ -11,15 +14,15 @@ describe("ClientsPage", () => {
   });
 
   it("shows client list heading", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
     await waitFor(() => {
       expect(screen.getByText("WireGuard Clients")).toBeInTheDocument();
     });
   });
 
-  it("shows empty state when no clients", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+  it("shows empty state when no clients (admin)", async () => {
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -27,8 +30,18 @@ describe("ClientsPage", () => {
     });
   });
 
+  it("shows non-admin empty state when no clients", async () => {
+    cleanup = mockFetch({ "/auth/me": userMe, "/clients": [], "/subnet-ranges": [] });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/No client configurations found for your account/)).toBeInTheDocument();
+    });
+  });
+
   it("renders clients from API", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [
         {
           Client: {
@@ -57,6 +70,7 @@ describe("ClientsPage", () => {
 
   it("shows enabled badge for enabled clients", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [
         {
           Client: {
@@ -81,5 +95,27 @@ describe("ClientsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Enabled")).toBeInTheDocument();
     });
+  });
+
+  it("hides New Client and Export buttons for non-admin users", async () => {
+    cleanup = mockFetch({ "/auth/me": userMe, "/clients": [], "/subnet-ranges": [] });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("WireGuard Clients")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("New Client")).not.toBeInTheDocument();
+    expect(screen.queryByText("Export to Excel")).not.toBeInTheDocument();
+  });
+
+  it("shows New Client and Export buttons for admin users", async () => {
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Export to Excel")).toBeInTheDocument();
   });
 });
