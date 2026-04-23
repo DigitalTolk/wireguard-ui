@@ -266,6 +266,193 @@ func TestQuery_CombinedActorAndDateRange(t *testing.T) {
 	assert.Equal(t, "admin", entries[0].Actor)
 }
 
+// --- DistinctFilters Tests ---
+
+func TestDistinctFilters_Empty(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	actors, actions, err := logger.DistinctFilters()
+	require.NoError(t, err)
+	assert.Empty(t, actors)
+	assert.Empty(t, actions)
+}
+
+func TestDistinctFilters_WithData(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "user.create", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "admin", Action: "client.create", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "manager", Action: "client.update", IPAddress: "10.0.0.2"})
+	logger.Log(Entry{Actor: "manager", Action: "user.create", IPAddress: "10.0.0.2"})
+
+	actors, actions, err := logger.DistinctFilters()
+	require.NoError(t, err)
+	assert.Len(t, actors, 2)
+	assert.Contains(t, actors, "admin")
+	assert.Contains(t, actors, "manager")
+	assert.Len(t, actions, 3)
+	assert.Contains(t, actions, "user.create")
+	assert.Contains(t, actions, "client.create")
+	assert.Contains(t, actions, "client.update")
+}
+
+func TestDistinctFilters_SingleActor(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "a1", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "admin", Action: "a2", IPAddress: "10.0.0.1"})
+
+	actors, actions, err := logger.DistinctFilters()
+	require.NoError(t, err)
+	assert.Len(t, actors, 1)
+	assert.Equal(t, "admin", actors[0])
+	assert.Len(t, actions, 2)
+}
+
+// --- buildWhereClause with search parameter ---
+
+func TestQuery_SearchFilter(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "user.create", ResourceType: "user", ResourceID: "user-abc", Details: map[string]string{"role": "admin"}, IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "manager", Action: "client.create", ResourceType: "client", ResourceID: "client-xyz", Details: map[string]string{"name": "test"}, IPAddress: "10.0.0.2"})
+
+	// search by resource_id
+	entries, total, err := logger.Query("", "", "", "", "user-abc", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "user-abc", entries[0].ResourceID)
+
+	// search by details content
+	entries, total, err = logger.Query("", "", "", "", "test", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, "client-xyz", entries[0].ResourceID)
+
+	// search by actor name
+	entries, total, err = logger.Query("", "", "", "", "manager", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Equal(t, "manager", entries[0].Actor)
+
+	// search with no matches
+	entries, total, err = logger.Query("", "", "", "", "nonexistent", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Empty(t, entries)
+}
+
+func TestQueryAll_SearchFilter(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "test", ResourceID: "res-123", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "admin", Action: "test", ResourceID: "res-456", IPAddress: "10.0.0.1"})
+
+	entries, err := logger.QueryAll("", "", "", "", "res-123")
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "res-123", entries[0].ResourceID)
+}
+
+// --- Query edge cases ---
+
+func TestQuery_MaxPerPage(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "test", IPAddress: "10.0.0.1"})
+
+	// perPage > maxPerPage should be clamped
+	entries, _, err := logger.Query("", "", "", "", "", 1, 999)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
+}
+
+func TestQuery_AllFiltersCombined(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "user.create", ResourceType: "user", ResourceID: "match-this", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "admin", Action: "client.create", ResourceType: "client", ResourceID: "other", IPAddress: "10.0.0.1"})
+	logger.Log(Entry{Actor: "manager", Action: "user.create", ResourceType: "user", ResourceID: "match-this", IPAddress: "10.0.0.2"})
+
+	past := time.Now().Add(-24 * time.Hour).Format("2006-01-02")
+	futureEnd := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+
+	// Combine all filters: from, to, actor, action, search
+	entries, total, err := logger.Query(past, futureEnd, "admin", "user.create", "match", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "admin", entries[0].Actor)
+	assert.Equal(t, "user.create", entries[0].Action)
+	assert.Equal(t, "match-this", entries[0].ResourceID)
+}
+
+func TestQuery_ToDateFilter(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "test", IPAddress: "10.0.0.1"})
+
+	// With end date far in the future should include the entry
+	futureEnd := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+	entries, total, err := logger.Query("", futureEnd, "", "", "", 1, 50)
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	assert.Len(t, entries, 1)
+}
+
+// --- Error path tests ---
+
+func TestQuery_ClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	logger.Log(Entry{Actor: "admin", Action: "test", IPAddress: "10.0.0.1"})
+
+	db.Close()
+
+	_, _, err := logger.Query("", "", "", "", "", 1, 50)
+	assert.Error(t, err)
+}
+
+func TestQueryAll_ClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	db.Close()
+
+	_, err := logger.QueryAll("", "", "", "", "")
+	assert.Error(t, err)
+}
+
+func TestDistinctFilters_ClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	db.Close()
+
+	_, _, err := logger.DistinctFilters()
+	assert.Error(t, err)
+}
+
+func TestLog_ClosedDB(t *testing.T) {
+	db := newTestDB(t)
+	logger := NewLogger(db)
+
+	db.Close()
+
+	// Should not panic, just log the error internally
+	logger.Log(Entry{Actor: "admin", Action: "test", IPAddress: "10.0.0.1"})
+}
+
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }

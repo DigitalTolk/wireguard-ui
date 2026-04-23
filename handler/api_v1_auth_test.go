@@ -208,6 +208,130 @@ func TestAPIGetMe_WithSession(t *testing.T) {
 	assert.Contains(t, []int{http.StatusOK, http.StatusUnauthorized}, rec2.Code)
 }
 
+func TestAPIGetMe_WithAuthenticatedUser(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create user in DB
+	now := time.Now().UTC()
+	env.db.SaveUser(model.User{
+		Username:    "realuser",
+		Email:       "real@test.com",
+		DisplayName: "Real User",
+		Admin:       false,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+
+	// Populate CRC32 so session is valid
+	crc := util.GetDBUserCRC32(model.User{
+		Username:    "realuser",
+		Email:       "real@test.com",
+		DisplayName: "Real User",
+		Admin:       false,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["realuser"] = crc
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "realuser")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	// Create session
+	env.echo.GET("/setup-session", func(c echo.Context) error {
+		createSession(c, "realuser", false, crc, false)
+		return c.String(http.StatusOK, "ok")
+	})
+	env.echo.GET("/api/v1/auth/me2", APIGetMe(env.db))
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/api/v1/auth/me2", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var result map[string]interface{}
+	parseJSON(t, rec2, &result)
+	assert.Equal(t, "realuser", result["username"])
+	assert.Equal(t, "real@test.com", result["email"])
+	assert.Equal(t, "Real User", result["display_name"])
+	assert.Equal(t, false, result["admin"])
+}
+
+func TestAPIGetMe_NotAuthenticated(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/api/v1/auth/me-unauth", APIGetMe(env.db))
+
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/auth/me-unauth", nil)
+	env.echo.ServeHTTP(rec, req)
+	// Without a session, currentUser returns "<nil>" which is non-empty,
+	// so it will try to look up user and fail with internal error
+	assert.Contains(t, []int{http.StatusUnauthorized, http.StatusInternalServerError}, rec.Code)
+}
+
+func TestAPIAuth_WithValidSession(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Populate CRC32 map
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["admin"] = uint32(12345)
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "admin")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	// Create session
+	env.echo.GET("/create-api-session", func(c echo.Context) error {
+		createSession(c, "admin", true, uint32(12345), true)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	called := false
+	env.echo.GET("/api-protected", APIAuth(func(c echo.Context) error {
+		called = true
+		return c.String(http.StatusOK, "passed")
+	}))
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-api-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/api-protected", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
 func TestAPIAdmin_PassesThrough(t *testing.T) {
 	// With DisableLogin=true, isAdmin returns true, so middleware should pass through
 	util.DisableLogin = true

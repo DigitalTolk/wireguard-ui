@@ -742,6 +742,441 @@ func TestValidSession_POST_NoNextURL(t *testing.T) {
 	assert.Contains(t, location, "/login")
 }
 
+// --- doRefreshSession: session token mismatch ---
+
+func TestDoRefreshSession_TokenMismatch(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a remember-me session
+	env.echo.GET("/create-for-mismatch", func(c echo.Context) error {
+		createSession(c, "admin", true, uint32(12345), true)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-for-mismatch", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	// Now tamper with the session_token cookie
+	env.echo.GET("/do-refresh-mismatch", func(c echo.Context) error {
+		doRefreshSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-mismatch", nil)
+	for _, cookie := range cookies {
+		if cookie.Name == "session_token" {
+			cookie.Value = "tampered-token"
+		}
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	// The handler still returns OK, but the session was not refreshed
+}
+
+// --- doRefreshSession: no cookie at all ---
+
+func TestDoRefreshSession_NoCookie(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/do-refresh-no-cookie", func(c echo.Context) error {
+		doRefreshSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req, rec := jsonRequest(http.MethodGet, "/do-refresh-no-cookie", nil)
+	env.echo.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// --- doRefreshSession: session past max duration ---
+
+func TestDoRefreshSession_PastMaxDuration(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 100 // 100 seconds
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a session and manipulate it to be past max duration
+	env.echo.GET("/create-expired", func(c echo.Context) error {
+		createSession(c, "admin", true, uint32(12345), true)
+
+		// Manipulate session: created long ago, past max duration
+		sess, _ := session.Get("session", c)
+		now := time.Now().UTC().Unix()
+		sess.Values["created_at"] = now - 200 // created 200s ago, max is 100s
+		sess.Values["updated_at"] = now - 90  // updated 90s ago
+		sess.Save(c.Request(), c.Response())
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-expired", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	env.echo.GET("/do-refresh-expired", func(c echo.Context) error {
+		doRefreshSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-expired", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// --- doRefreshSession: updatedAt is in the future (corrupted) ---
+
+func TestDoRefreshSession_FutureUpdatedAt(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 86400 * 90
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/create-future", func(c echo.Context) error {
+		createSession(c, "admin", true, uint32(12345), true)
+
+		sess, _ := session.Get("session", c)
+		now := time.Now().UTC().Unix()
+		sess.Values["created_at"] = now - 172800
+		sess.Values["updated_at"] = now + 3600 // future timestamp
+		sess.Save(c.Request(), c.Response())
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-future", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	env.echo.GET("/do-refresh-future", func(c echo.Context) error {
+		doRefreshSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-future", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// --- doRefreshSession: session expired (updatedAt + maxAge < now) ---
+
+func TestDoRefreshSession_Expired(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 86400 * 90
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/create-for-expire-test", func(c echo.Context) error {
+		createSession(c, "admin", true, uint32(12345), true)
+
+		// Manipulate session so that it's expired: updatedAt + maxAge < now
+		sess, _ := session.Get("session", c)
+		now := time.Now().UTC().Unix()
+		maxAge := sess.Values["max_age"].(int)
+		sess.Values["created_at"] = now - int64(maxAge) - 200
+		sess.Values["updated_at"] = now - int64(maxAge) - 100 // expired 100s ago
+		sess.Save(c.Request(), c.Response())
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-for-expire-test", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	env.echo.GET("/do-refresh-expire-test", func(c echo.Context) error {
+		doRefreshSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/do-refresh-expire-test", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+// --- createSession with custom SessionMaxDuration ---
+
+func TestCreateSession_WithSessionMaxDuration(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 86400 * 30 // 30 days
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/create-with-duration", func(c echo.Context) error {
+		createSession(c, "duruser", true, uint32(44444), true)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req, rec := jsonRequest(http.MethodGet, "/create-with-duration", nil)
+	env.echo.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify cookie MaxAge is set to SessionMaxDuration
+	for _, cookie := range rec.Result().Cookies() {
+		if cookie.Name == "session_token" {
+			assert.Equal(t, int(util.SessionMaxDuration), cookie.MaxAge,
+				"Cookie MaxAge should equal SessionMaxDuration when rememberMe is true")
+			break
+		}
+	}
+}
+
+// --- isAdmin with non-admin session ---
+
+func TestIsAdmin_WithNonAdminSession(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/setup-nonadmin", func(c echo.Context) error {
+		createSession(c, "regular", false, uint32(55555), false)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-nonadmin", nil)
+	env.echo.ServeHTTP(rec1, req1)
+
+	var adminResult bool
+	env.echo.GET("/check-admin", func(c echo.Context) error {
+		adminResult = isAdmin(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/check-admin", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.False(t, adminResult, "Non-admin session should return false for isAdmin")
+}
+
+// --- isAdmin with admin session ---
+
+func TestIsAdmin_WithAdminSession(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	env.echo.GET("/setup-admin-check", func(c echo.Context) error {
+		createSession(c, "adminuser", true, uint32(66666), false)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-admin-check", nil)
+	env.echo.ServeHTTP(rec1, req1)
+
+	var adminResult bool
+	env.echo.GET("/check-admin2", func(c echo.Context) error {
+		adminResult = isAdmin(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/check-admin2", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.True(t, adminResult, "Admin session should return true for isAdmin")
+}
+
+// --- isValidSession: user not in CRC32 map ---
+
+func TestIsValidSession_UserRemovedFromDB(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["tempuser"] = uint32(54321)
+	util.DBUsersToCRC32Mutex.Unlock()
+
+	env.echo.GET("/create-temp-session", func(c echo.Context) error {
+		createSession(c, "tempuser", false, uint32(54321), true)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-temp-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	// Remove user from CRC32 map (simulates user deletion)
+	util.DBUsersToCRC32Mutex.Lock()
+	delete(util.DBUsersToCRC32, "tempuser")
+	util.DBUsersToCRC32Mutex.Unlock()
+
+	var valid bool
+	env.echo.GET("/validate-removed-user", func(c echo.Context) error {
+		valid = isValidSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/validate-removed-user", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.False(t, valid, "Session should be invalid when user is removed from DB")
+}
+
+// --- isValidSession: temporary session (maxAge=0) within 24h ---
+
+func TestIsValidSession_TemporarySession(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["tempsess"] = uint32(11111)
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "tempsess")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	// Create session without remember-me (maxAge=0)
+	env.echo.GET("/create-temp-sess", func(c echo.Context) error {
+		createSession(c, "tempsess", false, uint32(11111), false)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-temp-sess", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var valid bool
+	env.echo.GET("/validate-temp-sess", func(c echo.Context) error {
+		valid = isValidSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/validate-temp-sess", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.True(t, valid, "Temporary session should be valid within 24h virtual expiration")
+}
+
+// --- clearSession clears a valid session ---
+
+func TestClearSession_ThenInvalid(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["clearme"] = uint32(22222)
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "clearme")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	env.echo.GET("/create-clear-session", func(c echo.Context) error {
+		createSession(c, "clearme", true, uint32(22222), true)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-clear-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	cookies := rec1.Result().Cookies()
+
+	// Now clear it
+	env.echo.GET("/do-clear-session", func(c echo.Context) error {
+		clearSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req2, rec2 := jsonRequest(http.MethodGet, "/do-clear-session", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	// After clearing, the session_token cookie should have MaxAge=-1
+	for _, cookie := range rec2.Result().Cookies() {
+		if cookie.Name == "session_token" {
+			assert.Equal(t, -1, cookie.MaxAge, "session_token should be expired after clear")
+		}
+	}
+}
+
 func TestNeedsAdmin_WithAdminSession(t *testing.T) {
 	origDisable := util.DisableLogin
 	util.DisableLogin = false

@@ -237,4 +237,182 @@ describe("AuditPage interactions", () => {
       expect(screen.getByText("abc123")).toBeInTheDocument();
     });
   });
+
+  it("clicks Next pagination button", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      ...mockResponses,
+      "/audit-logs": {
+        data: [],
+        total: 100,
+        page: 1,
+        per_page: 50,
+      },
+    });
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Next")).toBeInTheDocument();
+    });
+
+    const nextButton = screen.getByText("Next").closest("button")!;
+    expect(nextButton).not.toBeDisabled();
+    await user.click(nextButton);
+  });
+
+  it("disables Next on last page", async () => {
+    cleanup = mockFetch({
+      ...mockResponses,
+      "/audit-logs": {
+        data: [],
+        total: 10,
+        page: 1,
+        per_page: 50,
+      },
+    });
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      const nextButton = screen.getByText("Next").closest("button");
+      expect(nextButton).toBeDisabled();
+    });
+  });
+
+  it("changes date to filter", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch(mockResponses);
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Date To")).toBeInTheDocument();
+    });
+
+    const toInput = screen.getByLabelText("Date To");
+    await user.clear(toInput);
+    await user.type(toInput, "2026-12-31");
+  });
+
+  it("shows resource with email matching name", async () => {
+    const logEmailOnly = {
+      ...logEntry,
+      id: 5,
+      details: '{"email":"alice@example.com"}',
+    };
+    cleanup = mockFetch({
+      ...mockResponses,
+      "/audit-logs": {
+        data: [logEmailOnly],
+        total: 1,
+        page: 1,
+        per_page: 50,
+      },
+    });
+
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      // name = email, so format is: name (resource_id)
+      expect(screen.getByText(/alice@example.com.*abc123/)).toBeInTheDocument();
+    });
+  });
+
+  it("exports with filters applied", async () => {
+    const user = userEvent.setup();
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    cleanup = mockFetch(mockResponses);
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Name, email, or ID...")).toBeInTheDocument();
+    });
+
+    // Clear existing text, type fresh, then press Enter to apply filter
+    const searchInput = screen.getByPlaceholderText("Name, email, or ID...");
+    await user.clear(searchInput);
+    await user.type(searchInput, "myfilter{Enter}");
+
+    // Now export
+    await user.click(screen.getByText("Export to Excel"));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining("search=myfilter"),
+      "_blank"
+    );
+    openSpy.mockRestore();
+  });
+
+  it("shows total count in pagination info", async () => {
+    cleanup = mockFetch({
+      ...mockResponses,
+      "/audit-logs": {
+        data: [logEntry],
+        total: 42,
+        page: 1,
+        per_page: 50,
+      },
+    });
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/42 total/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders Activity Log card title", async () => {
+    cleanup = mockFetch(mockResponses);
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Activity Log")).toBeInTheDocument();
+    });
+  });
+
+  it("clicks Previous button when on page 2", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      ...mockResponses,
+      "/audit-logs": {
+        data: [],
+        total: 100,
+        page: 2,
+        per_page: 50,
+      },
+    });
+
+    // Navigate to page=2
+    window.history.pushState({}, "", "?page=2");
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Previous")).toBeInTheDocument();
+    });
+
+    const prevButton = screen.getByText("Previous").closest("button")!;
+    expect(prevButton).not.toBeDisabled();
+    await user.click(prevButton);
+
+    // Clean up URL
+    window.history.pushState({}, "", "/");
+  });
+
+  it("clears a filter by setting it to empty value", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch(mockResponses);
+
+    // Start with a search filter applied
+    window.history.pushState({}, "", "?search=alice");
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Name, email, or ID...")).toBeInTheDocument();
+    });
+
+    // Clear the search and press Enter
+    const searchInput = screen.getByPlaceholderText("Name, email, or ID...");
+    await user.clear(searchInput);
+    await user.type(searchInput, "{Enter}");
+
+    // Clean up URL
+    window.history.pushState({}, "", "/");
+  });
 });
