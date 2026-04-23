@@ -21,11 +21,11 @@ import { apiPost } from "@/lib/api-client";
 
 const navItems = [
   { to: "/", icon: Shield, label: "Clients", end: true },
-  { to: "/status", icon: Monitor, label: "Status" },
+  { to: "/status", icon: Monitor, label: "Status", admin: true },
   { to: "/server", icon: Server, label: "Server", admin: true },
   { to: "/settings", icon: Settings, label: "Settings", admin: true },
   { to: "/users", icon: Users, label: "Users", admin: true },
-  { to: "/wol", icon: Wifi, label: "Wake-on-LAN" },
+  { to: "/wol", icon: Wifi, label: "Wake-on-LAN", admin: true },
   { to: "/audit", icon: ClipboardList, label: "Audit Logs", admin: true },
   { to: "/about", icon: Info, label: "About" },
 ];
@@ -80,9 +80,12 @@ export function AppShell() {
       <Separator />
       <div className="p-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm">
+          <div className="min-w-0 text-sm">
             <div className="font-medium text-sidebar-foreground">
               {me?.display_name || me?.username}
+            </div>
+            <div className="text-xs text-muted-foreground break-all">
+              {me?.email}
             </div>
             {me?.admin && (
               <span className="text-xs text-muted-foreground">Admin</span>

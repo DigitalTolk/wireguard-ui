@@ -42,10 +42,8 @@ func MigrateFromJSON(sqliteDB *SqliteDB, jsonDBPath string) error {
 		return fmt.Errorf("migrate hashes: %w", err)
 	}
 
-	// migrate users
-	if err := migrateUsers(sqliteDB, jsonDBPath); err != nil {
-		return fmt.Errorf("migrate users: %w", err)
-	}
+	// NOTE: users are NOT migrated — legacy password users cannot log in with SSO-only auth.
+	// The first OIDC login will auto-provision as admin when len(users) == 0.
 
 	// migrate clients
 	if err := migrateClients(sqliteDB, jsonDBPath); err != nil {
@@ -189,43 +187,6 @@ func migrateHashes(db *SqliteDB, jsonDBPath string) error {
 		return err
 	}
 	log.Info("  Migrated hashes")
-	return nil
-}
-
-func migrateUsers(db *SqliteDB, jsonDBPath string) error {
-	usersDir := filepath.Join(jsonDBPath, "users")
-	entries, err := os.ReadDir(usersDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-
-	count := 0
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-
-		var u model.User
-		if err := readJSONFile(filepath.Join(usersDir, entry.Name()), &u); err != nil {
-			log.Warnf("  Skipping user file %s: %v", entry.Name(), err)
-			continue
-		}
-
-		now := time.Now().UTC()
-		_, err := db.db.Exec(
-			`INSERT OR REPLACE INTO users (username, email, display_name, admin, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?)`,
-			u.Username, u.Email, u.DisplayName, u.Admin, now, now,
-		)
-		if err != nil {
-			return fmt.Errorf("migrate user %s: %w", u.Username, err)
-		}
-		count++
-	}
-	log.Infof("  Migrated %d users", count)
 	return nil
 }
 

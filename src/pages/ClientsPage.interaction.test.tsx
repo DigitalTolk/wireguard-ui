@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders, mockFetch } from "@/test/test-utils";
 import { ClientsPage } from "./ClientsPage";
 
+const adminMe = { username: "admin", email: "admin@test.com", display_name: "Admin", admin: true };
+
 const sampleClient = {
   Client: {
     id: "c1",
@@ -40,6 +42,7 @@ describe("ClientsPage interactions", () => {
   it("toggles client status", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/clients/c1/status": { ...sampleClient.Client, enabled: false },
       "/subnet-ranges": [],
@@ -56,7 +59,7 @@ describe("ClientsPage interactions", () => {
 
   it("opens QR code dialog", async () => {
     const user = userEvent.setup();
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -72,7 +75,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows download button", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -82,7 +85,7 @@ describe("ClientsPage interactions", () => {
 
   it("shows delete button and opens confirmation dialog", async () => {
     const user = userEvent.setup();
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -100,6 +103,7 @@ describe("ClientsPage interactions", () => {
   it("confirms delete in dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -123,6 +127,7 @@ describe("ClientsPage interactions", () => {
   it("cancels delete dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -142,7 +147,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays additional notes", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -155,7 +160,7 @@ describe("ClientsPage interactions", () => {
       ...sampleClient,
       Client: { ...sampleClient.Client, enabled: false },
     };
-    cleanup = mockFetch({ "/clients": [disabledClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [disabledClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -164,7 +169,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows client count badge", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -175,6 +180,7 @@ describe("ClientsPage interactions", () => {
   it("opens create client dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [],
       "/suggest-client-ips": ["10.252.1.2/32"],
       "/subnet-ranges": [],
@@ -202,6 +208,7 @@ describe("ClientsPage interactions", () => {
   it("creates a new client", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [],
       "/suggest-client-ips": ["10.252.1.2/32"],
       "/subnet-ranges": [],
@@ -226,6 +233,7 @@ describe("ClientsPage interactions", () => {
   it("cancels create dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [],
       "/suggest-client-ips": [],
       "/subnet-ranges": [],
@@ -246,7 +254,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows New Client button in empty state", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -256,7 +264,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays allocated IPs on client card", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -265,7 +273,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays allowed IPs on client card", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -274,7 +282,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays extra allowed IPs on client card", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -283,7 +291,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays created and updated dates on client card", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -293,7 +301,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows export to excel button", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -304,7 +312,7 @@ describe("ClientsPage interactions", () => {
   it("clicks export button", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -322,7 +330,7 @@ describe("ClientsPage interactions", () => {
   it("clicks download config button", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -338,7 +346,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows filters card with search and status", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -349,7 +357,7 @@ describe("ClientsPage interactions", () => {
 
   it("types in search input and presses enter", async () => {
     const user = userEvent.setup();
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -362,7 +370,7 @@ describe("ClientsPage interactions", () => {
 
   it("clicks search button", async () => {
     const user = userEvent.setup();
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -377,6 +385,7 @@ describe("ClientsPage interactions", () => {
   it("opens edit dialog and populates form", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -398,6 +407,7 @@ describe("ClientsPage interactions", () => {
   it("edits client name in edit dialog and saves", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -423,6 +433,7 @@ describe("ClientsPage interactions", () => {
   it("cancels edit dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -446,6 +457,7 @@ describe("ClientsPage interactions", () => {
   it("opens email dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -466,6 +478,7 @@ describe("ClientsPage interactions", () => {
   it("sends email from dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/clients/c1/email": { message: "Email sent" },
       "/subnet-ranges": [],
@@ -488,6 +501,7 @@ describe("ClientsPage interactions", () => {
   it("cancels email dialog", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [sampleClient],
       "/subnet-ranges": [],
     });
@@ -510,6 +524,7 @@ describe("ClientsPage interactions", () => {
   it("shows subnet range dropdown when ranges exist", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [],
       "/suggest-client-ips": ["10.252.1.2/32"],
       "/subnet-ranges": ["Office:10.0.1.0/24", "Remote:10.0.2.0/24"],
@@ -528,7 +543,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("does not show QR button for clients without QR code", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClientNoQR], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClientNoQR], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -539,7 +554,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("shows client email next to name", async () => {
-    cleanup = mockFetch({ "/clients": [sampleClient], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
@@ -550,6 +565,7 @@ describe("ClientsPage interactions", () => {
   it("shows create dialog with notes field", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/clients": [],
       "/suggest-client-ips": [],
       "/subnet-ranges": [],
@@ -568,7 +584,7 @@ describe("ClientsPage interactions", () => {
   });
 
   it("displays five status filter options", async () => {
-    cleanup = mockFetch({ "/clients": [], "/subnet-ranges": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {

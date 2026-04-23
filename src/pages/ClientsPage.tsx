@@ -7,6 +7,7 @@ import {
   useSetClientStatus,
   useDeleteClient,
 } from "@/hooks/useClients";
+import { useAuth } from "@/hooks/useAuth";
 import { apiGet, apiPost, API_BASE } from "@/lib/api-client";
 import { splitList } from "@/lib/utils";
 import {
@@ -114,6 +115,8 @@ const emptyCreateForm = {
 };
 
 export function ClientsPage() {
+  const { data: me } = useAuth();
+  const isAdminUser = me?.admin ?? false;
   const [searchParams, setSearchParams] = useSearchParams();
 
   const filterSearch = searchParams.get("search") || "";
@@ -334,67 +337,71 @@ export function ClientsPage() {
           </h2>
           <Badge variant="secondary">{clients?.length ?? 0}</Badge>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />
-            Export to Excel
-          </Button>
-          <Button onClick={handleOpenCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Client
-          </Button>
-        </div>
+        {isAdminUser && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleExport}>
+              <Download className="mr-2 h-4 w-4" />
+              Export to Excel
+            </Button>
+            <Button onClick={handleOpenCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Client
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="grid gap-2">
-            <Label htmlFor="filter-search">Search</Label>
-            <div className="flex gap-2">
-              <Input
-                id="filter-search"
-                className="min-w-0"
-                placeholder="Name, email, or IP..."
-                value={searchInput}
-                onChange={(e) => setSearchDirty(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { setFilter("search", searchInput); setSearchDirty(null); }
-                }}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => { setFilter("search", searchInput); setSearchDirty(null); }}
-                aria-label="Search"
-              >
-                <Search className="h-4 w-4" />
-              </Button>
+      {/* Filters (admin only) */}
+      {isAdminUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Filters</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-2">
+              <Label htmlFor="filter-search">Search</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="filter-search"
+                  className="min-w-0"
+                  placeholder="Name, email, or IP..."
+                  value={searchInput}
+                  onChange={(e) => setSearchDirty(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { setFilter("search", searchInput); setSearchDirty(null); }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => { setFilter("search", searchInput); setSearchDirty(null); }}
+                  aria-label="Search"
+                >
+                  <Search className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Status</Label>
-            <Select
-              value={filterStatus || undefined}
-              onValueChange={(v: string | null) => setFilter("status", !v || v === "_all" ? "" : v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="All" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="_all">All</SelectItem>
-                <SelectItem value="enabled">Enabled</SelectItem>
-                <SelectItem value="disabled">Disabled</SelectItem>
-                <SelectItem value="connected">Connected</SelectItem>
-                <SelectItem value="disconnected">Disconnected</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="grid gap-2">
+              <Label>Status</Label>
+              <Select
+                value={filterStatus || undefined}
+                onValueChange={(v: string | null) => setFilter("status", !v || v === "_all" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All</SelectItem>
+                  <SelectItem value="enabled">Enabled</SelectItem>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                  <SelectItem value="connected">Connected</SelectItem>
+                  <SelectItem value="disconnected">Disconnected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4">
         {clients?.map((cd) => {
@@ -411,24 +418,32 @@ export function ClientsPage() {
                   )}
                 </CardTitle>
                 <div className="flex items-center gap-3">
-                  <label
-                    className="flex items-center gap-2 text-sm"
-                    htmlFor={`toggle-${client.id}`}
-                  >
-                    <Switch
-                      id={`toggle-${client.id}`}
-                      checked={client.enabled}
-                      onCheckedChange={(checked) =>
-                        handleToggle(client.id, checked)
-                      }
-                      aria-label={`${client.enabled ? "Disable" : "Enable"} ${client.name}`}
-                    />
+                  {isAdminUser ? (
+                    <label
+                      className="flex items-center gap-2 text-sm"
+                      htmlFor={`toggle-${client.id}`}
+                    >
+                      <Switch
+                        id={`toggle-${client.id}`}
+                        checked={client.enabled}
+                        onCheckedChange={(checked) =>
+                          handleToggle(client.id, checked)
+                        }
+                        aria-label={`${client.enabled ? "Disable" : "Enable"} ${client.name}`}
+                      />
+                      <Badge
+                        variant={client.enabled ? "default" : "secondary"}
+                      >
+                        {client.enabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </label>
+                  ) : (
                     <Badge
                       variant={client.enabled ? "default" : "secondary"}
                     >
                       {client.enabled ? "Enabled" : "Disabled"}
                     </Badge>
-                  </label>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -454,22 +469,26 @@ export function ClientsPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOpenEdit(client)}
-                      aria-label={`Edit ${client.name}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleOpenEmail(client)}
-                      aria-label={`Email config to ${client.name}`}
-                    >
-                      <Mail className="h-4 w-4" />
-                    </Button>
+                    {isAdminUser && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(client)}
+                        aria-label={`Edit ${client.name}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {isAdminUser && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEmail(client)}
+                        aria-label={`Email config to ${client.name}`}
+                      >
+                        <Mail className="h-4 w-4" />
+                      </Button>
+                    )}
                     {cd.QRCode && (
                       <Button
                         variant="ghost"
@@ -488,14 +507,16 @@ export function ClientsPage() {
                     >
                       <Download className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(client.id, client.name)}
-                      aria-label={`Delete ${client.name}`}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {isAdminUser && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(client.id, client.name)}
+                        aria-label={`Delete ${client.name}`}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -505,7 +526,9 @@ export function ClientsPage() {
         {(!clients || clients.length === 0) && (
           <Card>
             <CardContent className="py-12 text-center text-muted-foreground">
-              No clients configured yet. Click "New Client" to add one.
+              {isAdminUser
+                ? 'No clients configured yet. Click "New Client" to add one.'
+                : "No client configurations found for your account."}
             </CardContent>
           </Card>
         )}

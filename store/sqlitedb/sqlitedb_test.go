@@ -784,9 +784,9 @@ func TestMigrateFromJSON_FullMigration(t *testing.T) {
 	assert.Equal(t, "abc", hashes.Client)
 	assert.Equal(t, "def", hashes.Server)
 
-	user, err := db.GetUserByName("miguser")
-	require.NoError(t, err)
-	assert.Equal(t, "mig@test.com", user.Email)
+	// Users are no longer migrated (SSO-only auth makes legacy users useless)
+	_, err = db.GetUserByName("miguser")
+	assert.Error(t, err, "Legacy users should not be migrated")
 
 	clientData, err := db.GetClientByID("migclient", model.QRCodeSettings{Enabled: false})
 	require.NoError(t, err)

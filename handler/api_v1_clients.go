@@ -51,12 +51,32 @@ func connectedPeerKeys() map[string]bool {
 	return keys
 }
 
+// currentUserEmail returns the email of the currently logged-in user by looking up
+// the session username in the database. Returns "" if unavailable.
+func currentUserEmail(c echo.Context, db store.IStore) string {
+	username := currentUser(c)
+	if username == "" {
+		return ""
+	}
+	user, err := db.GetUserByName(username)
+	if err != nil {
+		return ""
+	}
+	return user.Email
+}
+
 // APIListClients returns all WireGuard clients
 func APIListClients(db store.IStore) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		clientDataList, err := db.GetClients(false)
 		if err != nil {
 			return apiInternalError(c, fmt.Sprintf("Cannot get client list: %v", err))
+		}
+
+		admin := isAdmin(c)
+		var userEmail string
+		if !admin {
+			userEmail = currentUserEmail(c, db)
 		}
 
 		search := strings.ToLower(c.QueryParam("search"))
@@ -72,6 +92,11 @@ func APIListClients(db store.IStore) echo.HandlerFunc {
 		for _, clientData := range clientDataList {
 			clientData = util.FillClientSubnetRange(clientData)
 			cl := clientData.Client
+
+			// Non-admin users can only see clients matching their email
+			if !admin && !strings.EqualFold(cl.Email, userEmail) {
+				continue
+			}
 
 			// filter by status
 			if status == "enabled" && !cl.Enabled {
@@ -115,6 +140,15 @@ func APIGetClient(db store.IStore) echo.HandlerFunc {
 		if err != nil {
 			return apiNotFound(c, "Client not found")
 		}
+
+		// Non-admin users can only access their own clients
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
+		}
+
 		return c.JSON(http.StatusOK, util.FillClientSubnetRange(clientData))
 	}
 }
@@ -368,6 +402,14 @@ func APIDownloadClientConfig(db store.IStore) echo.HandlerFunc {
 			return apiNotFound(c, "Client not found")
 		}
 
+		// Non-admin users can only download their own configs
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
+		}
+
 		server, err := db.GetServer()
 		if err != nil {
 			return apiInternalError(c, "Cannot get server config")
@@ -397,6 +439,14 @@ func APIGetClientQRCode(db store.IStore) echo.HandlerFunc {
 			return apiNotFound(c, "Client not found")
 		}
 
+		// Non-admin users can only view their own QR codes
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
+		}
+
 		return c.JSON(http.StatusOK, map[string]string{
 			"qr_code": clientData.QRCode,
 		})
@@ -422,6 +472,14 @@ func APIEmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, email
 		clientData, err := db.GetClientByID(clientID, qrCodeSettings)
 		if err != nil {
 			return apiNotFound(c, "Client not found")
+		}
+
+		// Non-admin users can only email their own configs
+		if !isAdmin(c) {
+			userEmail := currentUserEmail(c, db)
+			if !strings.EqualFold(clientData.Client.Email, userEmail) {
+				return apiForbidden(c, "Access denied")
+			}
 		}
 
 		server, _ := db.GetServer()
@@ -538,7 +596,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 		LastHandshakeRel  time.Duration `json:"last_handshake_rel"`
 		Connected         bool          `json:"connected"`
 		AllocatedIP       string        `json:"allocated_ip"`
-		Endpoint          string        `json:"endpoint,omitempty"`
+		Endpoint          string        `json:"endpoint"`
 	}
 
 	type DeviceStatus struct {
@@ -589,7 +647,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 					}
 					p.Connected = p.LastHandshakeRel < connectedThreshold
 
-					if isAdmin(c) && devices[i].Peers[j].Endpoint != nil {
+					if devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
 					}
 

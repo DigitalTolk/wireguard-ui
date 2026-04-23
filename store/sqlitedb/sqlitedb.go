@@ -134,6 +134,11 @@ func (o *SqliteDB) Init() error {
 		o.db.Exec(`INSERT INTO hashes (id, client, server) VALUES (1, 'none', 'none')`)
 	}
 
+	// Clean up legacy password users that were migrated from JSON but have no OIDC subject.
+	// These users can never log in with SSO-only auth, and their presence prevents
+	// the first OIDC login from being auto-promoted to admin.
+	o.db.Exec(`DELETE FROM users WHERE oidc_sub IS NULL OR oidc_sub = ''`)
+
 	// init caches (first OIDC login auto-provisions admin user)
 	users, err := o.GetUsers()
 	if err == nil {

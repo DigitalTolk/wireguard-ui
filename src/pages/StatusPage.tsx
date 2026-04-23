@@ -14,6 +14,19 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
+function formatHandshake(nanos: number): string {
+  if (!nanos || nanos <= 0) return "Never";
+  // last_handshake_rel is a Go time.Duration in nanoseconds
+  const seconds = Math.floor(nanos / 1_000_000_000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export function StatusPage() {
   const { data: devices, isLoading } = useQuery({
     queryKey: ["status"],
@@ -41,6 +54,7 @@ export function StatusPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>IP</TableHead>
+                  <TableHead>Last Handshake</TableHead>
                   <TableHead>Received</TableHead>
                   <TableHead>Sent</TableHead>
                   <TableHead>Endpoint</TableHead>
@@ -51,11 +65,18 @@ export function StatusPage() {
                   <TableRow key={peer.public_key}>
                     <TableCell className="font-medium">{peer.name || "Unknown"}</TableCell>
                     <TableCell>
-                      <Badge variant={peer.connected ? "default" : "secondary"}>
+                      <Badge className="w-28 justify-center" variant={peer.connected ? "default" : "secondary"}>
                         {peer.connected ? "Connected" : "Disconnected"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm">{peer.allocated_ip}</TableCell>
+                    <TableCell className="text-sm">
+                      {peer.allocated_ip
+                        ? peer.allocated_ip.split(", ").map((ip, i) => (
+                            <div key={i}>{ip}</div>
+                          ))
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatHandshake(peer.last_handshake_rel)}</TableCell>
                     <TableCell className="text-sm">{formatBytes(peer.received_bytes)}</TableCell>
                     <TableCell className="text-sm">{formatBytes(peer.transmit_bytes)}</TableCell>
                     <TableCell className="text-sm">{peer.endpoint || "-"}</TableCell>
@@ -63,7 +84,7 @@ export function StatusPage() {
                 ))}
                 {(!device.peers || device.peers.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No peers connected
                     </TableCell>
                   </TableRow>
