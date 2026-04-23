@@ -62,6 +62,8 @@ func New(dbPath string) (*SqliteDB, error) {
 
 // migrate applies incremental schema changes to existing databases
 func (o *SqliteDB) migrate() {
+	log.Info("Running database migrations...")
+
 	if _, err := o.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_name ON clients(name)`); err != nil {
 		log.Warnf("migrate: create idx_clients_name: %v", err)
 	}
@@ -69,7 +71,22 @@ func (o *SqliteDB) migrate() {
 		log.Warnf("migrate: create idx_clients_public_key: %v", err)
 	}
 
-	o.db.Exec(`DELETE FROM users WHERE oidc_sub IS NULL OR oidc_sub = ''`)
+	// remove legacy password-only users (cannot log in with SSO-only auth)
+	res, _ := o.db.Exec(`DELETE FROM users WHERE oidc_sub IS NULL OR oidc_sub = ''`)
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Infof("migrate: removed %d legacy user(s) without OIDC subject", n)
+	}
+
+	// if no admin exists after cleanup, promote the first user
+	var adminCount int
+	o.db.QueryRow(`SELECT COUNT(*) FROM users WHERE admin = 1`).Scan(&adminCount)
+	if adminCount == 0 {
+		var username string
+		if o.db.QueryRow(`SELECT username FROM users ORDER BY created_at ASC LIMIT 1`).Scan(&username) == nil {
+			o.db.Exec(`UPDATE users SET admin = 1 WHERE username = ?`, username)
+			log.Infof("migrate: promoted user %s to admin (no admin existed)", username)
+		}
+	}
 
 	// derive missing public keys from private keys
 	type keyPair struct{ id, privKey string }
@@ -87,8 +104,11 @@ func (o *SqliteDB) migrate() {
 	for _, kp := range missing {
 		if key, err := wgtypes.ParseKey(kp.privKey); err == nil {
 			o.db.Exec(`UPDATE clients SET public_key = ? WHERE id = ?`, key.PublicKey().String(), kp.id)
+			log.Infof("migrate: derived public key for client %s", kp.id)
 		}
 	}
+
+	log.Info("Database migrations complete")
 }
 
 // Init initializes the database with default values if they don't exist

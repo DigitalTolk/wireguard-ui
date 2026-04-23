@@ -1629,6 +1629,313 @@ func TestMigrateFromJSON_ClientSaveFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "migrate client")
 }
 
+// --- Migration integration tests (simulate production upgrade scenario) ---
+
+// TestMigrate_RunsOnInit verifies that reopening an existing DB runs migrate()
+// which deletes legacy users without oidc_sub.
+func TestMigrate_RunsOnInit(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Phase 1: create DB and insert a legacy user (no oidc_sub)
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	_, err = db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('legacy', 'legacy@test.com', 'Legacy User', '', 1, ?, ?)`,
+		time.Now().UTC(), time.Now().UTC(),
+	)
+	require.NoError(t, err)
+
+	users, err := db1.GetUsers()
+	require.NoError(t, err)
+	assert.Len(t, users, 1, "legacy user must exist before migration")
+
+	db1.db.Close()
+
+	// Phase 2: reopen the same DB — Init() must run migrate() and delete legacy user
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	users, err = db2.GetUsers()
+	require.NoError(t, err)
+	assert.Len(t, users, 0, "legacy user without oidc_sub must be deleted by migration")
+}
+
+func TestMigrate_PreservesOIDCUsers(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	now := time.Now().UTC()
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('oidcuser', 'oidc@test.com', 'OIDC User', 'sub-12345', 1, ?, ?)`, now, now)
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('legacy', 'legacy@test.com', 'Legacy', '', 0, ?, ?)`, now, now)
+	db1.db.Close()
+
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	users, err := db2.GetUsers()
+	require.NoError(t, err)
+	assert.Len(t, users, 1, "only the OIDC user should survive migration")
+	assert.Equal(t, "oidcuser", users[0].Username)
+	assert.Equal(t, "sub-12345", users[0].OIDCSub)
+}
+
+func TestMigrate_DeletesNullOIDCSub(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('nulluser', 'null@test.com', 'Null', NULL, 1, ?, ?)`,
+		time.Now().UTC(), time.Now().UTC())
+	db1.db.Close()
+
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	users, err := db2.GetUsers()
+	require.NoError(t, err)
+	assert.Len(t, users, 0, "user with NULL oidc_sub must be deleted")
+}
+
+// TestMigrate_EmptyUsersEnablesFirstOIDCAdmin simulates the full production flow:
+// 1. Existing DB has legacy password-only users
+// 2. Upgrade runs Init() which deletes them
+// 3. First OIDC login sees empty users table and becomes admin
+func TestMigrate_EmptyUsersEnablesFirstOIDCAdmin(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('old-admin', 'old@test.com', 'Old Admin', '', 1, ?, ?)`,
+		time.Now().UTC(), time.Now().UTC())
+	db1.db.Close()
+
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	users, err := db2.GetUsers()
+	require.NoError(t, err)
+	require.Len(t, users, 0, "users table must be empty after migration")
+
+	// Simulate first OIDC login (same logic as findOrCreateOIDCUser)
+	now := time.Now().UTC()
+	newUser := model.User{
+		Username: "first-oidc", Email: "first@co.com", DisplayName: "First",
+		OIDCSub: "oidc-sub-first", Admin: len(users) == 0,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db2.SaveUser(newUser))
+
+	saved, err := db2.GetUserByName("first-oidc")
+	require.NoError(t, err)
+	assert.True(t, saved.Admin, "first OIDC user after migration must be admin")
+}
+
+// TestMigrate_PromotesOnlyUserToAdmin simulates the exact production bug:
+// OIDC user was created with admin=false while legacy users still existed,
+// then migration deletes legacy users, leaving the OIDC user as the only
+// user but not admin. Migration must promote them.
+func TestMigrate_PromotesOnlyUserToAdmin(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	now := time.Now().UTC()
+	// OIDC user created with admin=false (because legacy users existed at login time)
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('gunter', 'gunter@co.com', 'Gunter', 'oidc-sub-123', 0, ?, ?)`, now, now)
+	db1.db.Close()
+
+	// reopen — migrate should see no admin exists and promote gunter
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	user, err := db2.GetUserByName("gunter")
+	require.NoError(t, err)
+	assert.True(t, user.Admin, "only OIDC user must be promoted to admin when no admin exists")
+}
+
+func TestMigrate_DoesNotPromoteWhenAdminExists(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	now := time.Now().UTC()
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('admin-user', 'admin@co.com', 'Admin', 'oidc-admin', 1, ?, ?)`, now, now)
+	db1.db.Exec(
+		`INSERT INTO users (username, email, display_name, oidc_sub, admin, created_at, updated_at)
+		 VALUES ('regular', 'reg@co.com', 'Regular', 'oidc-reg', 0, ?, ?)`, now, now)
+	db1.db.Close()
+
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	user, err := db2.GetUserByName("regular")
+	require.NoError(t, err)
+	assert.False(t, user.Admin, "should not promote when an admin already exists")
+}
+
+func TestMigrate_UniqueIndexOnName(t *testing.T) {
+	db := initTestDB(t)
+	now := time.Now().UTC()
+
+	c1 := model.Client{
+		ID: "c1", Name: "same-name", Email: "a@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.SaveClient(c1))
+
+	c2 := model.Client{
+		ID: "c2", Name: "same-name", Email: "b@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	assert.Error(t, db.SaveClient(c2), "duplicate name must be rejected by unique index")
+}
+
+func TestMigrate_UniqueIndexOnPublicKey(t *testing.T) {
+	db := initTestDB(t)
+	key, _ := wgtypes.GeneratePrivateKey()
+	pubKey := key.PublicKey().String()
+	now := time.Now().UTC()
+
+	c1 := model.Client{
+		ID: "c1", Name: "a", PublicKey: pubKey, Email: "a@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.SaveClient(c1))
+
+	c2 := model.Client{
+		ID: "c2", Name: "b", PublicKey: pubKey, Email: "b@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	assert.Error(t, db.SaveClient(c2), "duplicate public_key must be rejected by unique index")
+}
+
+func TestMigrate_EmptyPublicKeysAllowed(t *testing.T) {
+	db := initTestDB(t)
+	now := time.Now().UTC()
+
+	c1 := model.Client{
+		ID: "c1", Name: "a", PublicKey: "", Email: "a@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.SaveClient(c1))
+
+	c2 := model.Client{
+		ID: "c2", Name: "b", PublicKey: "", Email: "b@test.com",
+		AllocatedIPs: []string{}, AllowedIPs: []string{},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, db.SaveClient(c2), "partial unique index must allow multiple empty public keys")
+}
+
+func TestMigrate_DerivesPublicKeys_OnReopen(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db1, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db1.Init())
+
+	key1, _ := wgtypes.GeneratePrivateKey()
+	key2, _ := wgtypes.GeneratePrivateKey()
+	now := time.Now().UTC()
+
+	db1.db.Exec(
+		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email,
+		 subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
+		 endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at)
+		 VALUES (?, ?, '', '', 'C1', 'c1@t.com', '[]', '[]', '[]', '[]', '', '', 1, 1, ?, ?)`,
+		"c1", key1.String(), now, now)
+	db1.db.Exec(
+		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email,
+		 subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
+		 endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at)
+		 VALUES (?, ?, '', '', 'C2', 'c2@t.com', '[]', '[]', '[]', '[]', '', '', 1, 1, ?, ?)`,
+		"c2", key2.String(), now, now)
+	db1.db.Close()
+
+	db2, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db2.Init())
+
+	c1Data, err := db2.GetClientByID("c1", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, key1.PublicKey().String(), c1Data.Client.PublicKey, "public key must be derived on reopen")
+
+	c2Data, err := db2.GetClientByID("c2", model.QRCodeSettings{Enabled: false})
+	require.NoError(t, err)
+	assert.Equal(t, key2.PublicKey().String(), c2Data.Client.PublicKey, "public key must be derived on reopen")
+}
+
 func TestMigrateFromJSON_SkipsNonJSON(t *testing.T) {
 	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
 	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
