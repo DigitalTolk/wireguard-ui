@@ -25,6 +25,10 @@ import (
 // connectedThreshold defines how recently a peer must have handshaked to be considered connected
 var connectedThreshold = 3 * time.Minute
 
+func isConnected(lastHandshake time.Time) bool {
+	return !lastHandshake.IsZero() && time.Since(lastHandshake) < connectedThreshold
+}
+
 func connectedPeerKeys() map[string]bool {
 	keys := make(map[string]bool)
 	wgClient, err := wgctrl.New()
@@ -42,7 +46,7 @@ func connectedPeerKeys() map[string]bool {
 
 	for _, dev := range devices {
 		for _, peer := range dev.Peers {
-			if time.Since(peer.LastHandshakeTime) < connectedThreshold {
+			if isConnected(peer.LastHandshakeTime) {
 				keys[peer.PublicKey.String()] = true
 			}
 		}
@@ -669,7 +673,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 						LastHandshakeRel:  handshakeRel,
 						AllocatedIP:       allocatedIPs,
 					}
-					p.Connected = p.LastHandshakeRel < connectedThreshold
+					p.Connected = isConnected(handshakeTime)
 
 					if devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
