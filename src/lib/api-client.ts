@@ -1,5 +1,7 @@
 export const API_BASE = "/api/v1";
 
+let redirectingToLogin = false;
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -25,8 +27,10 @@ export async function apiFetch<T>(
   });
 
   if (res.status === 401) {
-    // redirect to OIDC login
-    window.location.href = `${API_BASE}/auth/oidc/login`;
+    if (!redirectingToLogin) {
+      redirectingToLogin = true;
+      window.location.href = `${API_BASE}/auth/oidc/login`;
+    }
     throw new ApiError(401, "UNAUTHORIZED", "Not authenticated");
   }
 

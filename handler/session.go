@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
 	"github.com/rs/xid"
 )
 
@@ -51,6 +52,7 @@ func isValidSession(c echo.Context) bool {
 	sess, _ := session.Get("session", c)
 	cookie, err := c.Cookie("session_token")
 	if err != nil || sess.Values["session_token"] != cookie.Value {
+		log.Debugf("session invalid: token cookie mismatch (err=%v)", err)
 		return false
 	}
 
@@ -66,6 +68,7 @@ func isValidSession(c echo.Context) bool {
 	expiration := updatedAt + int64(maxAge)
 	now := time.Now().UTC().Unix()
 	if updatedAt > now || expiration < now || createdAt+util.SessionMaxDuration < now {
+		log.Debugf("session invalid: time bounds (updatedAt=%d, expiration=%d, maxDuration=%d, now=%d)", updatedAt, expiration, createdAt+util.SessionMaxDuration, now)
 		return false
 	}
 
@@ -76,6 +79,7 @@ func isValidSession(c echo.Context) bool {
 	uHash, ok := util.DBUsersToCRC32[username]
 	util.DBUsersToCRC32Mutex.RUnlock()
 	if !ok || userHash != uHash {
+		log.Debugf("session invalid: user hash mismatch (user=%s, ok=%v, sessHash=%d, dbHash=%d)", username, ok, userHash, uHash)
 		return false
 	}
 
