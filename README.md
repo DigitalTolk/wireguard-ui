@@ -1,5 +1,7 @@
 # digitaltolk/wireguard-ui
 
+[![Coverage Status](https://coveralls.io/repos/github/DigitalTolk/wireguard-ui/badge.svg)](https://coveralls.io/github/DigitalTolk/wireguard-ui)
+
 A web user interface to manage your WireGuard setup.
 
 Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui).

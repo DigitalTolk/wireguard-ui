@@ -69,7 +69,8 @@ export function AuditPage() {
   const filterActor = searchParams.get("actor") || "";
   const filterAction = searchParams.get("action") || "";
   const filterSearch = searchParams.get("search") || "";
-  const [searchInput, setSearchInput] = useState(filterSearch);
+  const [searchDirty, setSearchDirty] = useState<string | null>(null);
+  const searchInput = searchDirty ?? filterSearch;
 
   const setFilter = useCallback(
     (key: string, value: string) => {
@@ -98,8 +99,7 @@ export function AuditPage() {
   const { data: filters } = useQuery({
     queryKey: ["audit-filters"],
     queryFn: () => apiGet<AuditFiltersResponse>("/audit-logs/filters"),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 30_000,
   });
 
   const buildApiParams = useCallback(() => {
@@ -229,15 +229,15 @@ export function AuditPage() {
                 className="min-w-0"
                 placeholder="Name, email, or ID..."
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => setSearchDirty(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") setFilter("search", searchInput);
+                  if (e.key === "Enter") { setFilter("search", searchInput); setSearchDirty(null); }
                 }}
               />
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setFilter("search", searchInput)}
+                onClick={() => { setFilter("search", searchInput); setSearchDirty(null); }}
                 aria-label="Search"
               >
                 <Search className="h-4 w-4" />

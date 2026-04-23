@@ -146,10 +146,8 @@ func ValidateExtraAllowedIPs(cidrs []string) bool {
 	return ValidateCIDRList(cidrs, true)
 }
 
-// ValidateServerAddresses to validate allowed ip addresses in CIDR format
-func ValidateServerAddresses(cidrs []string) bool {
-	return ValidateCIDRList(cidrs, false)
-}
+// ValidateServerAddresses is an alias for ValidateAllowedIPs
+var ValidateServerAddresses = ValidateAllowedIPs
 
 // ValidateIPAddress to validate the IPv4 and IPv6 address
 func ValidateIPAddress(ip string) bool {

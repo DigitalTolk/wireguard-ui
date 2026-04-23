@@ -41,8 +41,10 @@ func APIUpdateServerInterface(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Listen port must be between 1 and 65535")
 		}
 
-		// capture before state
-		oldServer, _ := db.GetServer()
+		oldServer, beforeErr := db.GetServer()
+		if beforeErr != nil {
+			log.Warnf("Cannot capture before-state for audit: %v", beforeErr)
+		}
 
 		serverInterface.UpdatedAt = time.Now().UTC()
 
@@ -118,8 +120,10 @@ func APIUpdateSettings(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Config file path must be an absolute path starting with /")
 		}
 
-		// capture before state
-		oldSettings, _ := db.GetGlobalSettings()
+		oldSettings, beforeErr := db.GetGlobalSettings()
+		if beforeErr != nil {
+			log.Warnf("Cannot capture before-state for audit: %v", beforeErr)
+		}
 
 		settings.UpdatedAt = time.Now().UTC()
 

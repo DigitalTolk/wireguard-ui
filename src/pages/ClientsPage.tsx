@@ -118,7 +118,8 @@ export function ClientsPage() {
 
   const filterSearch = searchParams.get("search") || "";
   const filterStatus = searchParams.get("status") || "";
-  const [searchInput, setSearchInput] = useState(filterSearch);
+  const [searchDirty, setSearchDirty] = useState<string | null>(null);
+  const searchInput = searchDirty ?? filterSearch;
 
   const setFilter = useCallback(
     (key: string, value: string) => {
@@ -172,8 +173,7 @@ export function ClientsPage() {
   const { data: subnetRanges } = useQuery({
     queryKey: ["subnet-ranges"],
     queryFn: () => apiGet<string[]>("/subnet-ranges"),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: Infinity,
   });
 
   // When subnet range changes in create dialog, suggest IPs
@@ -360,15 +360,15 @@ export function ClientsPage() {
                 className="min-w-0"
                 placeholder="Name, email, or IP..."
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => setSearchDirty(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") setFilter("search", searchInput);
+                  if (e.key === "Enter") { setFilter("search", searchInput); setSearchDirty(null); }
                 }}
               />
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => setFilter("search", searchInput)}
+                onClick={() => { setFilter("search", searchInput); setSearchDirty(null); }}
                 aria-label="Search"
               >
                 <Search className="h-4 w-4" />

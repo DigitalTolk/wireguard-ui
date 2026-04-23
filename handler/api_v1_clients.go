@@ -24,8 +24,9 @@ import (
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
 
-// connectedPeerKeys returns the set of public keys for peers whose last
-// handshake was less than 3 minutes ago (i.e. currently connected).
+// connectedThreshold defines how recently a peer must have handshaked to be considered connected
+var connectedThreshold = 3 * time.Minute
+
 func connectedPeerKeys() map[string]bool {
 	keys := make(map[string]bool)
 	wgClient, err := wgctrl.New()
@@ -43,7 +44,7 @@ func connectedPeerKeys() map[string]bool {
 
 	for _, dev := range devices {
 		for _, peer := range dev.Peers {
-			if time.Since(peer.LastHandshakeTime).Minutes() < 3 {
+			if time.Since(peer.LastHandshakeTime) < connectedThreshold {
 				keys[peer.PublicKey.String()] = true
 			}
 		}
@@ -603,7 +604,7 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 						LastHandshakeRel:  time.Since(devices[i].Peers[j].LastHandshakeTime),
 						AllocatedIP:       allocatedIPs,
 					}
-					p.Connected = p.LastHandshakeRel.Minutes() < 3.
+					p.Connected = p.LastHandshakeRel < connectedThreshold
 
 					if isAdmin(c) && devices[i].Peers[j].Endpoint != nil {
 						p.Endpoint = devices[i].Peers[j].Endpoint.String()
