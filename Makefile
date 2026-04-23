@@ -5,7 +5,7 @@ GO_PACKAGES := $(shell go list ./... | grep -v 'wireguard-ui$$' | grep -v node_m
 VERSION     ?= dev
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "N/A")
 BUILD_TIME  := $(shell date -u '+%Y-%m-%d %H:%M:%S')
-LDFLAGS     := -X 'main.appVersion=$(VERSION)' -X 'main.buildTime=$(BUILD_TIME)' -X 'main.gitCommit=$(GIT_COMMIT)'
+LDFLAGS     := -s -w -X 'main.appVersion=$(VERSION)' -X 'main.buildTime=$(BUILD_TIME)' -X 'main.gitCommit=$(GIT_COMMIT)'
 
 .PHONY: help build build-frontend build-backend test test-verbose coverage lint lint-go lint-frontend fmt vet clean dev
 
@@ -20,7 +20,7 @@ build-frontend: ## Build the React frontend
 	npm ci && npm run build
 
 build-backend: ## Build the Go binary
-	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(APP_NAME) .
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o $(APP_NAME) .
 
 ## ---- Test ----
 
