@@ -185,7 +185,7 @@ func TestAPIGetMe_WithSession(t *testing.T) {
 	// Create a route that first creates a session and then calls APIGetMe
 	env.echo.GET("/setup-and-getme", func(c echo.Context) error {
 		// Create a session for admin user
-		createSession(c, "admin", true, uint32(0), false)
+		createSession(c, "admin", true, uint32(0))
 		return c.String(http.StatusOK, "session created")
 	})
 	env.echo.GET("/api/v1/auth/me", APIGetMe(env.db))
@@ -247,7 +247,7 @@ func TestAPIGetMe_WithAuthenticatedUser(t *testing.T) {
 
 	// Create session
 	env.echo.GET("/setup-session", func(c echo.Context) error {
-		createSession(c, "realuser", false, crc, false)
+		createSession(c, "realuser", false, crc)
 		return c.String(http.StatusOK, "ok")
 	})
 	env.echo.GET("/api/v1/auth/me2", APIGetMe(env.db))
@@ -309,7 +309,7 @@ func TestAPIAuth_WithValidSession(t *testing.T) {
 
 	// Create session
 	env.echo.GET("/create-api-session", func(c echo.Context) error {
-		createSession(c, "admin", true, uint32(12345), true)
+		createSession(c, "admin", true, uint32(12345))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -363,7 +363,7 @@ func TestAPIGetMe_EmptyUsername(t *testing.T) {
 
 	// Create a session and then clear the username to empty string
 	env.echo.GET("/setup-empty-username", func(c echo.Context) error {
-		createSession(c, "", false, uint32(0), false)
+		createSession(c, "", false, uint32(0))
 		return c.String(http.StatusOK, "ok")
 	})
 
@@ -407,7 +407,7 @@ func TestAPIGetMe_DBError(t *testing.T) {
 	}()
 
 	env.echo.GET("/setup-doomed-session", func(c echo.Context) error {
-		createSession(c, "doomed", false, crc, false)
+		createSession(c, "doomed", false, crc)
 		return c.String(http.StatusOK, "ok")
 	})
 

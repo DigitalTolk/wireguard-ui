@@ -13,38 +13,6 @@ import (
 	"github.com/rs/xid"
 )
 
-func ValidSession(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		if !isValidSession(c) {
-			nextURL := c.Request().URL
-			if nextURL != nil && c.Request().Method == http.MethodGet {
-				return c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf(util.BasePath+"/login?next=%s", c.Request().URL))
-			} else {
-				return c.Redirect(http.StatusTemporaryRedirect, util.BasePath+"/login")
-			}
-		}
-		return next(c)
-	}
-}
-
-// RefreshSession must only be used after ValidSession middleware
-// RefreshSession checks if the session is eligible for the refresh, but doesn't check if it's fully valid
-func RefreshSession(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		doRefreshSession(c)
-		return next(c)
-	}
-}
-
-func NeedsAdmin(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		if !isAdmin(c) {
-			return c.Redirect(http.StatusTemporaryRedirect, util.BasePath+"/")
-		}
-		return next(c)
-	}
-}
-
 func isValidSession(c echo.Context) bool {
 	if util.DisableLogin {
 		return true
@@ -84,55 +52,6 @@ func isValidSession(c echo.Context) bool {
 	}
 
 	return true
-}
-
-// Refreshes a "remember me" session when the user visits web pages (not API)
-// Session must be valid before calling this function
-// Refresh is performed at most once per 24h
-func doRefreshSession(c echo.Context) {
-	if util.DisableLogin {
-		return
-	}
-
-	sess, _ := session.Get("session", c)
-	maxAge := getMaxAge(sess)
-	if maxAge <= 0 {
-		return
-	}
-
-	oldCookie, err := c.Cookie("session_token")
-	if err != nil || sess.Values["session_token"] != oldCookie.Value {
-		return
-	}
-
-	// Refresh no sooner than 24h
-	createdAt := getCreatedAt(sess)
-	updatedAt := getUpdatedAt(sess)
-	expiration := updatedAt + int64(getMaxAge(sess))
-	now := time.Now().UTC().Unix()
-	if updatedAt > now || expiration < now || now-updatedAt < 86_400 || createdAt+util.SessionMaxDuration < now {
-		return
-	}
-
-	cookiePath := util.GetCookiePath()
-
-	sess.Values["updated_at"] = now
-	sess.Options = &sessions.Options{
-		Path:     cookiePath,
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	}
-	sess.Save(c.Request(), c.Response())
-
-	cookie := new(http.Cookie)
-	cookie.Name = "session_token"
-	cookie.Path = cookiePath
-	cookie.Value = oldCookie.Value
-	cookie.MaxAge = maxAge
-	cookie.HttpOnly = true
-	cookie.SameSite = http.SameSiteLaxMode
-	c.SetCookie(cookie)
 }
 
 // Get time in seconds this session is valid without updating
@@ -223,14 +142,10 @@ func isAdmin(c echo.Context) bool {
 }
 
 // createSession establishes a new authenticated session for the user
-func createSession(c echo.Context, username string, admin bool, userCRC32 uint32, rememberMe bool) {
-	maxAge := 0
-	if rememberMe {
-		if util.SessionMaxDuration > 0 {
-			maxAge = int(util.SessionMaxDuration)
-		} else {
-			maxAge = 86400 * 7
-		}
+func createSession(c echo.Context, username string, admin bool, userCRC32 uint32) {
+	maxAge := int(util.SessionMaxDuration)
+	if maxAge <= 0 {
+		maxAge = 86400 // 1 day default
 	}
 
 	cookiePath := util.GetCookiePath()

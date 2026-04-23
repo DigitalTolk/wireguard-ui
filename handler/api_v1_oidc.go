@@ -169,7 +169,7 @@ func APIHandleOIDCCallback(oidcProvider *OIDCProvider, db store.IStore) echo.Han
 		}
 
 		// create session using shared helper (respects SessionMaxDuration config)
-		createSession(c, user.Username, user.Admin, util.GetDBUserCRC32(user), true)
+		createSession(c, user.Username, user.Admin, util.GetDBUserCRC32(user))
 
 		auditLogEvent(c, "user.login", "user", user.Username, map[string]string{"email": user.Email})
 		log.Infof("OIDC login successful for user: %s", user.Username)
