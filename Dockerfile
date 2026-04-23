@@ -36,7 +36,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -a -o wg-ui .
 
 # Stage 3: Runtime
-FROM alpine:3.21
+FROM alpine:3.23
 
 RUN addgroup -S wgui && adduser -S -D -G wgui wgui
 RUN apk --no-cache add ca-certificates wireguard-tools iptables
