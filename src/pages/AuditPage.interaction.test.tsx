@@ -395,6 +395,23 @@ describe("AuditPage interactions", () => {
     window.history.pushState({}, "", "/");
   });
 
+  it("types in search and clicks search button to apply", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch(mockResponses);
+    renderWithProviders(<AuditPage />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Name, email, or ID...")).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByPlaceholderText("Name, email, or ID...");
+    await user.type(searchInput, "findme");
+
+    // Click the search button (not Enter key) to apply the filter
+    const searchBtns = screen.getAllByLabelText("Search");
+    await user.click(searchBtns[0]);
+  });
+
   it("clears a filter by setting it to empty value", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch(mockResponses);

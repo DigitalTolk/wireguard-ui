@@ -54,6 +54,39 @@ func (e *errStore) GetPath() string                                          { r
 func (e *errStore) SaveHashes(model.ClientServerHashes) error                { return fmt.Errorf("db error") }
 func (e *errStore) GetHashes() (model.ClientServerHashes, error)             { return model.ClientServerHashes{}, fmt.Errorf("db error") }
 
+// saveFailStore is a mock where reads succeed but writes fail.
+// Used to test error paths where a lookup succeeds but saving fails.
+type saveFailStore struct {
+	user model.User // user returned by GetUserByName
+}
+
+func (s *saveFailStore) Init() error                                              { return nil }
+func (s *saveFailStore) GetUsers() ([]model.User, error)                         { return []model.User{s.user}, nil }
+func (s *saveFailStore) GetUserByName(string) (model.User, error)                { return s.user, nil }
+func (s *saveFailStore) GetUserByOIDCSub(string) (model.User, error)             { return s.user, nil }
+func (s *saveFailStore) SaveUser(model.User) error                               { return fmt.Errorf("save error") }
+func (s *saveFailStore) DeleteUser(string) error                                  { return fmt.Errorf("save error") }
+func (s *saveFailStore) GetGlobalSettings() (model.GlobalSetting, error)         { return model.GlobalSetting{}, nil }
+func (s *saveFailStore) GetServer() (model.Server, error)                        { return model.Server{}, nil }
+func (s *saveFailStore) GetClients(bool) ([]model.ClientData, error)             { return nil, nil }
+func (s *saveFailStore) GetClientByID(string, model.QRCodeSettings) (model.ClientData, error) {
+	return model.ClientData{}, nil
+}
+func (s *saveFailStore) SaveClient(model.Client) error                           { return fmt.Errorf("save error") }
+func (s *saveFailStore) DeleteClient(string) error                               { return fmt.Errorf("save error") }
+func (s *saveFailStore) SaveServerInterface(model.ServerInterface) error          { return fmt.Errorf("save error") }
+func (s *saveFailStore) SaveServerKeyPair(model.ServerKeypair) error              { return fmt.Errorf("save error") }
+func (s *saveFailStore) SaveGlobalSettings(model.GlobalSetting) error             { return fmt.Errorf("save error") }
+func (s *saveFailStore) GetAllocatedIPs(string) ([]string, error)                { return nil, nil }
+func (s *saveFailStore) GetWakeOnLanHosts() ([]model.WakeOnLanHost, error)       { return nil, nil }
+func (s *saveFailStore) GetWakeOnLanHost(string) (*model.WakeOnLanHost, error)   { return nil, nil }
+func (s *saveFailStore) DeleteWakeOnHostLanHost(string) error                     { return fmt.Errorf("save error") }
+func (s *saveFailStore) SaveWakeOnLanHost(model.WakeOnLanHost) error              { return fmt.Errorf("save error") }
+func (s *saveFailStore) DeleteWakeOnHost(model.WakeOnLanHost) error               { return fmt.Errorf("save error") }
+func (s *saveFailStore) GetPath() string                                          { return "/tmp" }
+func (s *saveFailStore) SaveHashes(model.ClientServerHashes) error                { return fmt.Errorf("save error") }
+func (s *saveFailStore) GetHashes() (model.ClientServerHashes, error)             { return model.ClientServerHashes{}, nil }
+
 type testEnv struct {
 	db       *sqlitedb.SqliteDB
 	auditLog *audit.Logger

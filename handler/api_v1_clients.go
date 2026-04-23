@@ -330,8 +330,7 @@ func APIUpdateClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 		}
 
 		client.Name = _client.Name
-		// email is immutable after creation — preserve original
-		client.Enabled = _client.Enabled
+		// email and enabled are not editable here — use PATCH /status for enabled
 		client.UseServerDNS = _client.UseServerDNS
 		client.AllocatedIPs = _client.AllocatedIPs
 		client.AllowedIPs = _client.AllowedIPs
@@ -657,12 +656,17 @@ func APIServerStatus(db store.IStore) echo.HandlerFunc {
 						}
 						allocatedIPs += ip.String()
 					}
+					handshakeTime := devices[i].Peers[j].LastHandshakeTime
+					var handshakeRel time.Duration
+					if !handshakeTime.IsZero() {
+						handshakeRel = time.Since(handshakeTime)
+					}
 					p := PeerStatus{
 						PublicKey:         devices[i].Peers[j].PublicKey.String(),
 						ReceivedBytes:     devices[i].Peers[j].ReceiveBytes,
 						TransmitBytes:     devices[i].Peers[j].TransmitBytes,
-						LastHandshakeTime: devices[i].Peers[j].LastHandshakeTime,
-						LastHandshakeRel:  time.Since(devices[i].Peers[j].LastHandshakeTime),
+						LastHandshakeTime: handshakeTime,
+						LastHandshakeRel:  handshakeRel,
 						AllocatedIP:       allocatedIPs,
 					}
 					p.Connected = p.LastHandshakeRel < connectedThreshold

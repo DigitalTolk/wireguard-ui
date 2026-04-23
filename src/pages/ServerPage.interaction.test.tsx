@@ -217,4 +217,151 @@ describe("ServerPage interactions", () => {
 
     expect(postUpInput).toHaveValue("echo hello");
   });
+
+  it("edits Pre-Down Script field", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/server": serverData });
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Pre-Down Script")).toBeInTheDocument();
+    });
+
+    const preDownInput = screen.getByPlaceholderText("Optional pre-down script");
+    await user.type(preDownInput, "echo predown");
+
+    expect(preDownInput).toHaveValue("echo predown");
+  });
+
+  it("edits Post-Down Script field", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/server": serverData });
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Post-Down Script")).toBeInTheDocument();
+    });
+
+    const postDownInput = screen.getByPlaceholderText("iptables -D FORWARD ...");
+    await user.type(postDownInput, "echo postdown");
+
+    expect(postDownInput).toHaveValue("echo postdown");
+  });
+
+  it("handles save interface error", async () => {
+    const user = userEvent.setup();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/server/interface") && init?.method === "PUT") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Save failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/server")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => serverData,
+          text: async () => JSON.stringify(serverData),
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Save")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Save"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/server/interface"),
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+  });
+
+  it("handles regenerate keypair error", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/server/keypair") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Keypair regen failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/server")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => serverData,
+          text: async () => JSON.stringify(serverData),
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Regenerate")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Regenerate"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/server/keypair"),
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
+  it("edits listen port", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/server": serverData });
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("51820")).toBeInTheDocument();
+    });
+
+    const portInput = screen.getByLabelText("Listen port");
+    await user.clear(portInput);
+    await user.type(portInput, "51821");
+    expect(portInput).toHaveValue(51821);
+  });
+
+  it("edits addresses field", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/server": serverData });
+    renderWithProviders(<ServerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("10.0.0.1/24")).toBeInTheDocument();
+    });
+
+    const addrInput = screen.getByLabelText("Server addresses");
+    await user.clear(addrInput);
+    await user.type(addrInput, "10.0.0.2/24");
+    expect(addrInput).toHaveValue("10.0.0.2/24");
+  });
 });

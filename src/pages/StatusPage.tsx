@@ -79,8 +79,8 @@ export function StatusPage() {
     refetchInterval: 5000,
   });
 
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("connected");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -99,7 +99,12 @@ export function StatusPage() {
         const va = getSortValue(a, sortKey);
         const vb = getSortValue(b, sortKey);
         const cmp = va < vb ? -1 : va > vb ? 1 : 0;
-        return sortDir === "asc" ? cmp : -cmp;
+        const primary = sortDir === "asc" ? cmp : -cmp;
+        if (primary !== 0 || sortKey === "name") return primary;
+        // secondary sort by name when primary values are equal
+        const na = (a.name || "").toLowerCase();
+        const nb = (b.name || "").toLowerCase();
+        return na < nb ? -1 : na > nb ? 1 : 0;
       }),
     }));
   }, [devices, sortKey, sortDir]);

@@ -1936,6 +1936,86 @@ func TestMigrate_DerivesPublicKeys_OnReopen(t *testing.T) {
 	assert.Equal(t, key2.PublicKey().String(), c2Data.Client.PublicKey, "public key must be derived on reopen")
 }
 
+func TestReadJSONFile_UnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "unreadable.json")
+
+	// Create a file, then make it unreadable
+	require.NoError(t, os.WriteFile(path, []byte(`{"key":"value"}`), 0644))
+	require.NoError(t, os.Chmod(path, 0000))
+
+	// Ensure we restore permissions for cleanup
+	defer os.Chmod(path, 0644)
+
+	var result map[string]string
+	err := readJSONFile(path, &result)
+	assert.Error(t, err, "readJSONFile should fail with unreadable file")
+}
+
+func TestReadJSONFile_NonexistentFile(t *testing.T) {
+	var result map[string]string
+	err := readJSONFile("/nonexistent/path/file.json", &result)
+	assert.Error(t, err, "readJSONFile should fail with nonexistent file")
+}
+
+func TestReadJSONFile_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "invalid.json")
+	require.NoError(t, os.WriteFile(path, []byte("{invalid json"), 0644))
+
+	var result map[string]string
+	err := readJSONFile(path, &result)
+	assert.Error(t, err, "readJSONFile should fail with invalid JSON")
+}
+
+func TestReadJSONFile_ValidJSON(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "valid.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"key":"value"}`), 0644))
+
+	var result map[string]string
+	err := readJSONFile(path, &result)
+	require.NoError(t, err)
+	assert.Equal(t, "value", result["key"])
+}
+
+// TestInit_SkipsCreationWhenDataExists calls Init on a DB that already has data
+// to exercise the count > 0 branches in Init (skip creation of server interface,
+// keypair, global settings, and hashes).
+func TestInit_SkipsCreationWhenDataExists(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	// First Init creates defaults
+	require.NoError(t, db.Init())
+
+	// Get original values
+	origServer, err := db.GetServer()
+	require.NoError(t, err)
+	origPubKey := origServer.KeyPair.PublicKey
+
+	origGS, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+
+	// Modify the global settings to something custom
+	origGS.EndpointAddress = "custom.endpoint.com"
+	require.NoError(t, db.SaveGlobalSettings(origGS))
+
+	// Second Init should NOT overwrite existing data
+	require.NoError(t, db.Init())
+
+	// Verify server keypair was NOT regenerated
+	server2, err := db.GetServer()
+	require.NoError(t, err)
+	assert.Equal(t, origPubKey, server2.KeyPair.PublicKey, "keypair should not change on second Init")
+
+	// Verify global settings were NOT overwritten
+	gs2, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "custom.endpoint.com", gs2.EndpointAddress, "global settings should not be overwritten on second Init")
+}
+
 func TestMigrateFromJSON_SkipsNonJSON(t *testing.T) {
 	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
 	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")

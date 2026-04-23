@@ -1261,14 +1261,73 @@ describe("ClientsPage interactions", () => {
     });
   });
 
+  it("handles email send error", async () => {
+    const user = userEvent.setup();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/clients/c1/email") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Email send failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/auth/me")) {
+        return {
+          ok: true, status: 200,
+          json: async () => adminMe,
+          text: async () => JSON.stringify(adminMe),
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/clients")) {
+        return {
+          ok: true, status: 200,
+          json: async () => [sampleClient],
+          text: async () => JSON.stringify([sampleClient]),
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/subnet-ranges")) {
+        return {
+          ok: true, status: 200,
+          json: async () => [],
+          text: async () => "[]",
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Email config to Test Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByLabelText("Email config to Test Client"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Send Config via Email")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Send"));
+
+    // Wait for the POST to be called
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/clients/c1/email"),
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
   it("shows invalid email format for non-required email in edit validation", async () => {
     const user = userEvent.setup();
-    // Create a client with an invalid email set on the Client object
-    // Since the email field in edit is disabled, we can test the validateClientForm
-    // with emailRequired=true and a bad email by looking at the edit validation
-    // Actually, edit validation passes the editDialog.email which is disabled
-    // The edit form validation checks editDialog?.email so can't directly test invalid
-    // Let's instead test the validation path in create form
     cleanup = mockFetch({
       "/auth/me": adminMe,
       "/clients": [],
@@ -1292,6 +1351,72 @@ describe("ClientsPage interactions", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Invalid email format")).toBeInTheDocument();
+    });
+  });
+
+  it("shows validation error for invalid allocated IPs CIDR", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      "/auth/me": adminMe,
+      "/clients": [],
+      "/suggest-client-ips": ["10.0.0.2/32"],
+      "/subnet-ranges": [],
+    });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("New Client"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. John's Laptop")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("e.g. John's Laptop"), "Test");
+    await user.type(screen.getByPlaceholderText("john@example.com"), "a@b.com");
+
+    // Set invalid allocated IPs
+    const allocInput = screen.getByLabelText("Allocated IPs");
+    await user.clear(allocInput);
+    await user.type(allocInput, "not-a-cidr");
+
+    await waitFor(() => {
+      expect(screen.getByText("Each IP must be valid CIDR (e.g. 10.0.0.2/32)")).toBeInTheDocument();
+    });
+  });
+
+  it("shows validation error for invalid allowed IPs CIDR", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({
+      "/auth/me": adminMe,
+      "/clients": [],
+      "/suggest-client-ips": ["10.0.0.2/32"],
+      "/subnet-ranges": [],
+    });
+    renderWithProviders(<ClientsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("New Client")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("New Client"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. John's Laptop")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("e.g. John's Laptop"), "Test");
+    await user.type(screen.getByPlaceholderText("john@example.com"), "a@b.com");
+
+    // Set invalid allowed IPs
+    const allowedInput = screen.getByLabelText("Allowed IPs");
+    await user.clear(allowedInput);
+    await user.type(allowedInput, "invalid");
+
+    await waitFor(() => {
+      expect(screen.getByText("Each IP must be valid CIDR (e.g. 0.0.0.0/0)")).toBeInTheDocument();
     });
   });
 });

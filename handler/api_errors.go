@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-var usernameRegexp = regexp.MustCompile(`^\w[\w\-.]*$`)
+var usernameRegexp = regexp.MustCompile(`^\w[\w\-.@]*$`)
 
 // APIError is the standard error response for API v1 endpoints
 type APIError struct {

@@ -47,6 +47,7 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, cw *h
 	users := g.Group("/users", handler.APIAuth, handler.APIAdmin)
 	users.GET("", handler.APIListUsers(db))
 	users.GET("/:username", handler.APIGetUser(db))
+	users.PATCH("/:username/admin", handler.APIPatchUserAdmin(db), handler.ContentTypeJson)
 
 	// Wake-on-LAN (admin only)
 	wolGroup := g.Group("/wol-hosts", handler.APIAuth, handler.APIAdmin)
