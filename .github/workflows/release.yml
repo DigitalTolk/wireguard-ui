@@ -97,6 +97,7 @@ jobs:
             APP_VERSION=${{ github.ref_name }}
             BUILD_TIME=${{ github.event.head_commit.timestamp }}
             GIT_COMMIT=${{ github.sha }}
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
