@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -133,14 +132,6 @@ func APICreateClient(db store.IStore) echo.HandlerFunc {
 			return apiBadRequest(c, "Email is required")
 		}
 
-		// validate telegram userid
-		if client.TgUserid != "" {
-			idNum, err := strconv.ParseInt(client.TgUserid, 10, 64)
-			if err != nil || idNum == 0 {
-				return apiBadRequest(c, "Telegram userid must be a non-zero number")
-			}
-		}
-
 		server, err := db.GetServer()
 		if err != nil {
 			return apiInternalError(c, "Cannot fetch server config")
@@ -238,13 +229,6 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 			return apiNotFound(c, "Client not found")
 		}
 
-		if _client.TgUserid != "" {
-			idNum, err := strconv.ParseInt(_client.TgUserid, 10, 64)
-			if err != nil || idNum == 0 {
-				return apiBadRequest(c, "Telegram userid must be a non-zero number")
-			}
-		}
-
 		server, err := db.GetServer()
 		if err != nil {
 			return apiInternalError(c, "Cannot fetch server config")
@@ -296,7 +280,6 @@ func APIUpdateClient(db store.IStore) echo.HandlerFunc {
 
 		client.Name = _client.Name
 		// email is immutable after creation — preserve original
-		client.TgUserid = _client.TgUserid
 		client.Enabled = _client.Enabled
 		client.UseServerDNS = _client.UseServerDNS
 		client.AllocatedIPs = _client.AllocatedIPs

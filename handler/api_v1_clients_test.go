@@ -266,23 +266,6 @@ func TestAPICreateClient_InvalidExtraAllowedIPs(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAPICreateClient_InvalidTelegramUserid(t *testing.T) {
-	env := setupTestEnv(t)
-
-	body := map[string]interface{}{
-		"name":              "TG Bad",
-		"email":             "tg@test.com",
-		"telegram_userid":   "notanumber",
-		"allocated_ips":     []string{"10.252.1.50/32"},
-		"allowed_ips":       []string{"0.0.0.0/0"},
-		"extra_allowed_ips": []string{},
-	}
-	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
-	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
 
 func TestAPICreateClient_WithPresharedKeyDash(t *testing.T) {
 	env := setupTestEnv(t)
@@ -440,34 +423,6 @@ func TestAPIUpdateClient_InvalidAllowedIPs(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAPIUpdateClient_InvalidTelegramUserid(t *testing.T) {
-	env := setupTestEnv(t)
-	id := xid.New().String()
-	now := time.Now().UTC()
-
-	env.db.SaveClient(model.Client{
-		ID: id, Name: "Orig", PublicKey: "pub1",
-		AllocatedIPs: []string{"10.252.1.72/32"}, AllowedIPs: []string{"0.0.0.0/0"},
-		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
-		Enabled: true, CreatedAt: now, UpdatedAt: now,
-	})
-
-	body := map[string]interface{}{
-		"name":              "TG bad",
-		"telegram_userid":   "notanumber",
-		"allocated_ips":     []string{"10.252.1.72/32"},
-		"allowed_ips":       []string{"0.0.0.0/0"},
-		"extra_allowed_ips": []string{},
-		"public_key":        "pub1",
-	}
-	req, rec := jsonRequest(http.MethodPut, "/api/v1/clients/"+id, body)
-	c := env.echo.NewContext(req, rec)
-	c.SetParamNames("id")
-	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
 
 // --- APIDownloadClientConfig Tests ---
 
