@@ -389,12 +389,12 @@ func TestGetAllocatedIPs_ExcludeClient(t *testing.T) {
 	now := time.Now().UTC()
 
 	db.SaveClient(model.Client{
-		ID: "c1", AllocatedIPs: []string{"10.252.1.2/32"},
+		ID: "c1", Name: "Client A", AllocatedIPs: []string{"10.252.1.2/32"},
 		AllowedIPs: []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
 		CreatedAt: now, UpdatedAt: now,
 	})
 	db.SaveClient(model.Client{
-		ID: "c2", AllocatedIPs: []string{"10.252.1.3/32"},
+		ID: "c2", Name: "Client B", AllocatedIPs: []string{"10.252.1.3/32"},
 		AllowedIPs: []string{}, ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
 		CreatedAt: now, UpdatedAt: now,
 	})

@@ -45,7 +45,7 @@ var (
 	flagEmailFrom          string
 	flagEmailFromName      = "WireGuard UI"
 	flagSessionSecret      = util.RandomString(32)
-	flagSessionMaxDuration = 90
+	flagSessionMaxDuration = 1
 	flagWgConfTemplate     string
 	flagBasePath           string
 	flagSubnetRanges       string
@@ -217,12 +217,16 @@ func main() {
 	// set up Echo with session middleware
 	app := router.New(util.SessionSecret)
 
+	// debounced config writer (coalesces rapid mutations into a single wg0.conf write)
+	configApplyDelay := time.Duration(util.LookupEnvOrInt(util.ConfigApplyDelayEnvVar, 3)) * time.Second
+	cw := handler.NewConfigWriter(db, tmplDir, configApplyDelay)
+
 	// audit logger
 	auditLog := audit.NewLogger(db.DB())
 
 	// API v1 routes
 	apiV1 := app.Group(util.BasePath+"/api/v1", handler.WithAuditLogger(auditLog))
-	router.RegisterAPIv1(apiV1, db, sendmail, tmplDir, defaultEmailSubject, defaultEmailContent, appVersion, gitCommit, auditLog)
+	router.RegisterAPIv1(apiV1, db, sendmail, cw, defaultEmailSubject, defaultEmailContent, appVersion, gitCommit, auditLog)
 
 	// OIDC SSO routes
 	oidcProvider, err := handler.NewOIDCProvider()

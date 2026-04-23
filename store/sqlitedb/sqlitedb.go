@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/labstack/gommon/log"
 	_ "modernc.org/sqlite"
 
 	"github.com/skip2/go-qrcode"
@@ -59,8 +60,42 @@ func New(dbPath string) (*SqliteDB, error) {
 	return &SqliteDB{db: db, dbPath: dbPath}, nil
 }
 
+// migrate applies incremental schema changes to existing databases
+func (o *SqliteDB) migrate() {
+	if _, err := o.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_name ON clients(name)`); err != nil {
+		log.Warnf("migrate: create idx_clients_name: %v", err)
+	}
+	if _, err := o.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_public_key ON clients(public_key) WHERE public_key != ''`); err != nil {
+		log.Warnf("migrate: create idx_clients_public_key: %v", err)
+	}
+
+	o.db.Exec(`DELETE FROM users WHERE oidc_sub IS NULL OR oidc_sub = ''`)
+
+	// derive missing public keys from private keys
+	type keyPair struct{ id, privKey string }
+	var missing []keyPair
+	rows, err := o.db.Query(`SELECT id, private_key FROM clients WHERE public_key = '' AND private_key != ''`)
+	if err == nil {
+		for rows.Next() {
+			var kp keyPair
+			if rows.Scan(&kp.id, &kp.privKey) == nil {
+				missing = append(missing, kp)
+			}
+		}
+		rows.Close()
+	}
+	for _, kp := range missing {
+		if key, err := wgtypes.ParseKey(kp.privKey); err == nil {
+			o.db.Exec(`UPDATE clients SET public_key = ? WHERE id = ?`, key.PublicKey().String(), kp.id)
+		}
+	}
+}
+
 // Init initializes the database with default values if they don't exist
 func (o *SqliteDB) Init() error {
+	// schema migrations for existing databases
+	o.migrate()
+
 	// server interface
 	var ifaceCount int
 	o.db.QueryRow("SELECT COUNT(*) FROM server_interface").Scan(&ifaceCount)
@@ -133,11 +168,6 @@ func (o *SqliteDB) Init() error {
 	if hashCount == 0 {
 		o.db.Exec(`INSERT INTO hashes (id, client, server) VALUES (1, 'none', 'none')`)
 	}
-
-	// Clean up legacy password users that were migrated from JSON but have no OIDC subject.
-	// These users can never log in with SSO-only auth, and their presence prevents
-	// the first OIDC login from being auto-promoted to admin.
-	o.db.Exec(`DELETE FROM users WHERE oidc_sub IS NULL OR oidc_sub = ''`)
 
 	// init caches (first OIDC login auto-provisions admin user)
 	users, err := o.GetUsers()

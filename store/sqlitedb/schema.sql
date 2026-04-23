@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS clients (
     private_key       TEXT NOT NULL DEFAULT '',
     public_key        TEXT NOT NULL DEFAULT '',
     preshared_key     TEXT NOT NULL DEFAULT '',
-    name              TEXT NOT NULL DEFAULT '',
+    name              TEXT NOT NULL DEFAULT '' UNIQUE,
     email             TEXT NOT NULL DEFAULT '',
     subnet_ranges     TEXT NOT NULL DEFAULT '[]',
     allocated_ips     TEXT NOT NULL DEFAULT '[]',

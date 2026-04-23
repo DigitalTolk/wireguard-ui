@@ -109,7 +109,6 @@ export interface ClientDefaults {
   AllowedIps: string[];
   ExtraAllowedIps: string[];
   UseServerDNS: boolean;
-  EnableAfterCreation: boolean;
 }
 
 export interface AppInfo {

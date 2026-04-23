@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +112,7 @@ func TestAPIDeleteClient(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIDeleteClient(env.db)(c)
+	err := APIDeleteClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -131,7 +130,7 @@ func TestAPIPatchClientStatus(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIPatchClientStatus(env.db)(c)
+	err := APIPatchClientStatus(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -202,7 +201,7 @@ func TestAPICreateClient_Success(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
@@ -227,7 +226,7 @@ func TestAPICreateClient_InvalidAllocatedIPs(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -244,7 +243,7 @@ func TestAPICreateClient_InvalidAllowedIPs(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -261,7 +260,7 @@ func TestAPICreateClient_InvalidExtraAllowedIPs(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -281,7 +280,7 @@ func TestAPICreateClient_WithPresharedKeyDash(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
@@ -304,7 +303,7 @@ func TestAPICreateClient_DuplicateAllocatedIP(t *testing.T) {
 	}
 	req1, rec1 := jsonRequest(http.MethodPost, "/api/v1/clients", body1)
 	c1 := env.echo.NewContext(req1, rec1)
-	err := APICreateClient(env.db)(c1)
+	err := APICreateClient(env.db, env.cw)(c1)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, rec1.Code)
 
@@ -318,7 +317,7 @@ func TestAPICreateClient_DuplicateAllocatedIP(t *testing.T) {
 	}
 	req2, rec2 := jsonRequest(http.MethodPost, "/api/v1/clients", body2)
 	c2 := env.echo.NewContext(req2, rec2)
-	err = APICreateClient(env.db)(c2)
+	err = APICreateClient(env.db, env.cw)(c2)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 }
@@ -352,7 +351,7 @@ func TestAPIUpdateClient_Success(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -371,7 +370,7 @@ func TestAPIUpdateClient_InvalidID(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues("bad!")
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -390,7 +389,7 @@ func TestAPIUpdateClient_NotFound(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -418,7 +417,7 @@ func TestAPIUpdateClient_InvalidAllowedIPs(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -534,24 +533,11 @@ func TestAPIGetClientQRCode_NotFound(t *testing.T) {
 func TestAPIApplyServerConfig_Success(t *testing.T) {
 	env := setupTestEnv(t)
 
-	// Set config file path to a temp location
-	tmpDir := t.TempDir()
-	gs, err := env.db.GetGlobalSettings()
-	require.NoError(t, err)
-	gs.ConfigFilePath = tmpDir + "/wg0.conf"
-	require.NoError(t, env.db.SaveGlobalSettings(gs))
-
-	tmplFS := os.DirFS("../templates")
-
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/server/apply-config", nil)
 	c := env.echo.NewContext(req, rec)
-	err = APIApplyServerConfig(env.db, tmplFS)(c)
+	err := APIApplyServerConfig(env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify the file was created
-	_, statErr := os.Stat(tmpDir + "/wg0.conf")
-	assert.NoError(t, statErr)
 }
 
 // --- APIPatchClientStatus edge cases ---
@@ -564,7 +550,7 @@ func TestAPIPatchClientStatus_InvalidID(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues("bad!")
-	err := APIPatchClientStatus(env.db)(c)
+	err := APIPatchClientStatus(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -578,7 +564,7 @@ func TestAPIPatchClientStatus_NotFound(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIPatchClientStatus(env.db)(c)
+	err := APIPatchClientStatus(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -600,7 +586,7 @@ func TestAPIPatchClientStatus_Enable(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIPatchClientStatus(env.db)(c)
+	err := APIPatchClientStatus(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -617,7 +603,7 @@ func TestAPIDeleteClient_InvalidID(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues("bad!")
-	err := APIDeleteClient(env.db)(c)
+	err := APIDeleteClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -755,7 +741,7 @@ func TestAPIUpdateClient_InvalidExtraAllowedIPs(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -777,7 +763,7 @@ func TestAPICreateClient_WithProvidedPublicKey(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	// Invalid WG key should return bad request
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -797,7 +783,7 @@ func TestAPICreateClient_WithInvalidPresharedKey(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -828,7 +814,7 @@ func TestAPIUpdateClient_ChangePublicKey_Invalid(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -858,7 +844,7 @@ func TestAPIUpdateClient_ChangePresharedKey_Invalid(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -871,7 +857,7 @@ func TestAPICreateClient_InvalidBody(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -894,7 +880,7 @@ func TestAPIUpdateClient_InvalidBody(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -917,7 +903,7 @@ func TestAPIPatchClientStatus_InvalidBody(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIPatchClientStatus(env.db)(c)
+	err := APIPatchClientStatus(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -969,7 +955,7 @@ func TestAPIUpdateClient_InvalidAllocatedIPs(t *testing.T) {
 	c := env.echo.NewContext(req, rec)
 	c.SetParamNames("id")
 	c.SetParamValues(id)
-	err := APIUpdateClient(env.db)(c)
+	err := APIUpdateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -988,7 +974,7 @@ func TestAPICreateClient_MissingEmail(t *testing.T) {
 	}
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients", body)
 	c := env.echo.NewContext(req, rec)
-	err := APICreateClient(env.db)(c)
+	err := APICreateClient(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Email is required")

@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/DigitalTolk/wireguard-ui/audit"
+	"github.com/DigitalTolk/wireguard-ui/handler"
 	"github.com/DigitalTolk/wireguard-ui/store/sqlitedb"
 	"github.com/DigitalTolk/wireguard-ui/util"
 )
@@ -101,9 +103,10 @@ func TestRegisterAPIv1_RoutesRegistered(t *testing.T) {
 	e := New(secret)
 
 	tmplFS := os.DirFS("../templates")
+	cw := handler.NewConfigWriter(db, tmplFS, 24*time.Hour)
 
 	g := e.Group("/api/v1")
-	RegisterAPIv1(g, db, nil, tmplFS, "", "", "dev", "test", auditLog)
+	RegisterAPIv1(g, db, nil, cw, "", "", "dev", "test", auditLog)
 
 	routes := e.Routes()
 
@@ -160,9 +163,10 @@ func TestRegisterAPIv1_HealthEndpointWorks(t *testing.T) {
 	e := New(secret)
 
 	tmplFS := os.DirFS("../templates")
+	cw := handler.NewConfigWriter(db, tmplFS, 24*time.Hour)
 
 	g := e.Group("/api/v1")
-	RegisterAPIv1(g, db, nil, tmplFS, "", "", "dev", "test", auditLog)
+	RegisterAPIv1(g, db, nil, cw, "", "", "dev", "test", auditLog)
 
 	// Test the auth/info endpoint which requires no auth
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/info", nil)

@@ -27,10 +27,6 @@ const sampleClient = {
   QRCode: "data:image/png;base64,abc123",
 };
 
-const sampleClientNoQR = {
-  Client: { ...sampleClient.Client, id: "c2", name: "No QR Client" },
-  QRCode: "",
-};
 
 describe("ClientsPage interactions", () => {
   let cleanup: () => void;
@@ -151,7 +147,7 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Notes: some notes")).toBeInTheDocument();
+      expect(screen.getByText("some notes")).toBeInTheDocument();
     });
   });
 
@@ -201,7 +197,6 @@ describe("ClientsPage interactions", () => {
       expect(screen.getByText("Allocated IPs")).toBeInTheDocument();
       expect(screen.getByText("Allowed IPs")).toBeInTheDocument();
       expect(screen.getByText("Use server DNS")).toBeInTheDocument();
-      expect(screen.getByText("Enable after creation")).toBeInTheDocument();
     });
   });
 
@@ -268,7 +263,7 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Allocated IPs: 10.0.0.2/32")).toBeInTheDocument();
+      expect(screen.getByText("10.0.0.2/32")).toBeInTheDocument();
     });
   });
 
@@ -277,7 +272,7 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Allowed IPs: 0.0.0.0/0")).toBeInTheDocument();
+      expect(screen.getByText("0.0.0.0/0")).toBeInTheDocument();
     });
   });
 
@@ -286,7 +281,7 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Extra Allowed IPs: 192.168.1.0/24")).toBeInTheDocument();
+      expect(screen.getByText("192.168.1.0/24")).toBeInTheDocument();
     });
   });
 
@@ -295,8 +290,8 @@ describe("ClientsPage interactions", () => {
     renderWithProviders(<ClientsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Created:/)).toBeInTheDocument();
-      expect(screen.getByText(/Updated:/)).toBeInTheDocument();
+      expect(screen.getByText(/Created /)).toBeInTheDocument();
+      expect(screen.getByText(/Updated /)).toBeInTheDocument();
     });
   });
 
@@ -542,16 +537,6 @@ describe("ClientsPage interactions", () => {
     });
   });
 
-  it("does not show QR button for clients without QR code", async () => {
-    cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClientNoQR], "/subnet-ranges": [] });
-    renderWithProviders(<ClientsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText("No QR Client")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByLabelText("Show QR code for No QR Client")).not.toBeInTheDocument();
-  });
 
   it("shows client email next to name", async () => {
     cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [sampleClient], "/subnet-ranges": [] });

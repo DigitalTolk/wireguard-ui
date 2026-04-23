@@ -63,7 +63,7 @@ const (
 	DefaultClientAllowedIpsEnvVar          = "WGUI_DEFAULT_CLIENT_ALLOWED_IPS"
 	DefaultClientExtraAllowedIpsEnvVar     = "WGUI_DEFAULT_CLIENT_EXTRA_ALLOWED_IPS"
 	DefaultClientUseServerDNSEnvVar        = "WGUI_DEFAULT_CLIENT_USE_SERVER_DNS"
-	DefaultClientEnableAfterCreationEnvVar = "WGUI_DEFAULT_CLIENT_ENABLE_AFTER_CREATION"
+	ConfigApplyDelayEnvVar = "WGUI_CONFIG_APPLY_DELAY"
 
 	// OIDC env vars
 	OIDCIssuerURLEnvVar     = "OIDC_ISSUER_URL"

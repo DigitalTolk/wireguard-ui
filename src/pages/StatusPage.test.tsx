@@ -35,7 +35,7 @@ describe("StatusPage", () => {
             {
               name: "Client1",
               email: "c1@test.com",
-              public_key: "pk1",
+              public_key: "pk1abcdef1234567890",
               received_bytes: 1024,
               transmit_bytes: 2048,
               last_handshake_time: new Date().toISOString(),
@@ -53,7 +53,17 @@ describe("StatusPage", () => {
     await waitFor(() => {
       expect(screen.getByText("wg0")).toBeInTheDocument();
       expect(screen.getByText("Client1")).toBeInTheDocument();
-      expect(screen.getByText("Connected")).toBeInTheDocument();
+      expect(screen.getByText("1.2.3.4:51820")).toBeInTheDocument();
+    });
+  });
+
+  it("shows sortable column headers", async () => {
+    cleanup = mockFetch({ "/status": [{ name: "wg0", peers: [] }] });
+    renderWithProviders(<StatusPage />);
+    await waitFor(() => {
+      expect(screen.getByText("Name")).toBeInTheDocument();
+      expect(screen.getByText("Handshake")).toBeInTheDocument();
+      expect(screen.getByText("Endpoint")).toBeInTheDocument();
     });
   });
 });

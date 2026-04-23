@@ -50,17 +50,15 @@ export function ServerPage() {
   }, [addrValue, portValue]);
   const serverValid = Object.keys(serverErrors).length === 0;
 
-  const saveAndApply = useMutation({
-    mutationFn: async () => {
-      await apiPut("/server/interface", {
+  const saveInterface = useMutation({
+    mutationFn: () =>
+      apiPut("/server/interface", {
         addresses: splitList(addrValue),
         listen_port: Number(portValue) || 0,
         post_up: postUpValue,
         pre_down: preDownValue,
         post_down: postDownValue,
-      });
-      await apiPost("/server/apply-config");
-    },
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["server"] });
       setAddresses(null);
@@ -68,7 +66,7 @@ export function ServerPage() {
       setPostUp(null);
       setPreDown(null);
       setPostDown(null);
-      toast.success("Interface saved and config applied");
+      toast.success("Interface saved");
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -91,11 +89,11 @@ export function ServerPage() {
           Server Configuration
         </h2>
         <Button
-          onClick={() => saveAndApply.mutate()}
-          disabled={!serverValid || saveAndApply.isPending}
+          onClick={() => saveInterface.mutate()}
+          disabled={!serverValid || saveInterface.isPending}
         >
           <Save className="mr-2 h-4 w-4" />
-          {saveAndApply.isPending ? "Applying..." : "Apply Config"}
+          {saveInterface.isPending ? "Saving..." : "Save"}
         </Button>
       </div>
 

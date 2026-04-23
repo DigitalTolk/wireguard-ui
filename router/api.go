@@ -1,8 +1,6 @@
 package router
 
 import (
-	"io/fs"
-
 	"github.com/labstack/echo/v4"
 
 	"github.com/DigitalTolk/wireguard-ui/audit"
@@ -12,7 +10,7 @@ import (
 )
 
 // RegisterAPIv1 registers all API v1 routes under the given group
-func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplDir fs.FS, emailSubject, emailContent, appVersion, gitCommit string, auditLog *audit.Logger) {
+func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, cw *handler.ConfigWriter, emailSubject, emailContent, appVersion, gitCommit string, auditLog *audit.Logger) {
 	// Auth
 	g.GET("/auth/me", handler.APIGetMe(db), handler.APIAuth)
 	g.POST("/auth/logout", handler.APILogout(), handler.APIAuth)
@@ -23,10 +21,10 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplD
 	clients.GET("", handler.APIListClients(db))
 	clients.GET("/export", handler.APIExportClients(db), handler.APIAdmin)
 	clients.GET("/:id", handler.APIGetClient(db))
-	clients.POST("", handler.APICreateClient(db), handler.APIAdmin, handler.ContentTypeJson)
-	clients.PUT("/:id", handler.APIUpdateClient(db), handler.APIAdmin, handler.ContentTypeJson)
-	clients.PATCH("/:id/status", handler.APIPatchClientStatus(db), handler.APIAdmin, handler.ContentTypeJson)
-	clients.DELETE("/:id", handler.APIDeleteClient(db), handler.APIAdmin)
+	clients.POST("", handler.APICreateClient(db, cw), handler.APIAdmin, handler.ContentTypeJson)
+	clients.PUT("/:id", handler.APIUpdateClient(db, cw), handler.APIAdmin, handler.ContentTypeJson)
+	clients.PATCH("/:id/status", handler.APIPatchClientStatus(db, cw), handler.APIAdmin, handler.ContentTypeJson)
+	clients.DELETE("/:id", handler.APIDeleteClient(db, cw), handler.APIAdmin)
 	clients.GET("/:id/config", handler.APIDownloadClientConfig(db))
 	clients.GET("/:id/qrcode", handler.APIGetClientQRCode(db))
 	clients.POST("/:id/email", handler.APIEmailClient(db, mailer, emailSubject, emailContent), handler.ContentTypeJson)
@@ -34,15 +32,15 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, tmplD
 	// Server (admin only)
 	server := g.Group("/server", handler.APIAuth, handler.APIAdmin)
 	server.GET("", handler.APIGetServer(db))
-	server.PUT("/interface", handler.APIUpdateServerInterface(db), handler.ContentTypeJson)
-	server.POST("/keypair", handler.APIRegenerateServerKeypair(db), handler.ContentTypeJson)
-	server.POST("/apply-config", handler.APIApplyServerConfig(db, tmplDir), handler.ContentTypeJson)
+	server.PUT("/interface", handler.APIUpdateServerInterface(db, cw), handler.ContentTypeJson)
+	server.POST("/keypair", handler.APIRegenerateServerKeypair(db, cw), handler.ContentTypeJson)
+	server.POST("/apply-config", handler.APIApplyServerConfig(cw), handler.ContentTypeJson)
 	server.GET("/config-status", handler.APIConfigStatus(db))
 
 	// Settings (admin only)
 	settings := g.Group("/settings", handler.APIAuth, handler.APIAdmin)
 	settings.GET("", handler.APIGetSettings(db))
-	settings.PUT("", handler.APIUpdateSettings(db), handler.ContentTypeJson)
+	settings.PUT("", handler.APIUpdateSettings(db, cw), handler.ContentTypeJson)
 
 	// Users (admin only for list/create/delete)
 	// Users (read-only — managed via SSO)

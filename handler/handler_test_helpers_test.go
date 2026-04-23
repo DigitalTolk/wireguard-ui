@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -23,6 +25,7 @@ type testEnv struct {
 	db       *sqlitedb.SqliteDB
 	auditLog *audit.Logger
 	echo     *echo.Echo
+	cw       *ConfigWriter
 }
 
 func setupTestEnv(t *testing.T) *testEnv {
@@ -48,7 +51,16 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	util.DisableLogin = true // simplify testing
 
-	return &testEnv{db: db, auditLog: auditLog, echo: e}
+	// config writer with very long delay so tests don't trigger real writes
+	tmplFS := fs.FS(os.DirFS(filepath.Join("..", "templates")))
+	cw := NewConfigWriter(db, tmplFS, 24*time.Hour)
+
+	// set config file path to temp dir so any accidental writes don't fail
+	gs, _ := db.GetGlobalSettings()
+	gs.ConfigFilePath = filepath.Join(dir, "wg0.conf")
+	db.SaveGlobalSettings(gs)
+
+	return &testEnv{db: db, auditLog: auditLog, echo: e, cw: cw}
 }
 
 func jsonRequest(method, path string, body interface{}) (*http.Request, *httptest.ResponseRecorder) {

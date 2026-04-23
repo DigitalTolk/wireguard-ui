@@ -30,19 +30,19 @@ describe("ServerPage interactions", () => {
     expect(window.confirm).toHaveBeenCalled();
   });
 
-  it("clicks apply config", async () => {
+  it("clicks save interface", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
       "/server": serverData,
-      "/server/apply-config": { message: "ok" },
+      "/server/interface": serverData.Interface,
     });
 
     renderWithProviders(<ServerPage />);
     await waitFor(() => {
-      expect(screen.getByText("Apply Config")).toBeInTheDocument();
+      expect(screen.getByText("Save")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText("Apply Config"));
+    await user.click(screen.getByText("Save"));
   });
 
   it("displays server addresses", async () => {

@@ -41,76 +41,95 @@ import { Download, Mail, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-rea
 import { toast } from "sonner";
 import type { Client, ClientData } from "@/lib/types";
 
+interface EditFormState {
+  name: string;
+  public_key: string;
+  allocated_ips: string;
+  allowed_ips: string;
+  extra_allowed_ips: string;
+  endpoint: string;
+  additional_notes: string;
+  use_server_dns: boolean;
+  preshared_key: string;
+}
+
 function validateClientForm(form: {
   name: string;
   email?: string;
-  allocated_ips: string[];
-  allowed_ips: string[];
-  extra_allowed_ips?: string[];
+  allocated_ips: string;
+  allowed_ips: string;
+  extra_allowed_ips?: string;
   endpoint?: string;
 }, emailRequired: boolean): Record<string, string> {
   const errors: Record<string, string> = {};
 
-  if (!form.name.trim()) {
-    errors.name = "Name is required";
-  }
+  if (!form.name.trim()) errors.name = "Name is required";
 
   if (emailRequired) {
-    if (!form.email || !form.email.trim()) {
-      errors.email = "Email is required";
-    } else if (!isValidEmail(form.email)) {
-      errors.email = "Invalid email format";
-    }
-  } else {
-    if (form.email && form.email.trim() && !isValidEmail(form.email)) {
-      errors.email = "Invalid email format";
-    }
+    if (!form.email?.trim()) errors.email = "Email is required";
+    else if (!isValidEmail(form.email)) errors.email = "Invalid email format";
+  } else if (form.email?.trim() && !isValidEmail(form.email)) {
+    errors.email = "Invalid email format";
   }
 
-  if (
-    form.allocated_ips.length === 0 ||
-    form.allocated_ips.every((ip) => !ip.trim())
-  ) {
-    errors.allocated_ips = "At least one allocated IP is required";
-  } else if (!form.allocated_ips.every((ip) => !ip.trim() || isValidCIDR(ip))) {
-    errors.allocated_ips = "Each allocated IP must be valid CIDR (e.g. 10.0.0.2/32)";
+  const allocIPs = splitList(form.allocated_ips);
+  if (allocIPs.length === 0) errors.allocated_ips = "At least one allocated IP is required";
+  else if (!allocIPs.every(isValidCIDR)) errors.allocated_ips = "Each IP must be valid CIDR (e.g. 10.0.0.2/32)";
+
+  const allowIPs = splitList(form.allowed_ips);
+  if (allowIPs.length === 0) errors.allowed_ips = "At least one allowed IP is required";
+  else if (!allowIPs.every(isValidCIDR)) errors.allowed_ips = "Each IP must be valid CIDR (e.g. 0.0.0.0/0)";
+
+  const extraIPs = splitList(form.extra_allowed_ips ?? "");
+  if (extraIPs.length > 0 && !extraIPs.every(isValidCIDR)) {
+    errors.extra_allowed_ips = "Each IP must be valid CIDR";
   }
 
-  if (
-    form.allowed_ips.length === 0 ||
-    form.allowed_ips.every((ip) => !ip.trim())
-  ) {
-    errors.allowed_ips = "At least one allowed IP is required";
-  } else if (!form.allowed_ips.every((ip) => !ip.trim() || isValidCIDR(ip))) {
-    errors.allowed_ips = "Each allowed IP must be valid CIDR (e.g. 0.0.0.0/0)";
-  }
-
-  if (
-    form.extra_allowed_ips &&
-    form.extra_allowed_ips.some((ip) => ip.trim()) &&
-    !form.extra_allowed_ips.every((ip) => !ip.trim() || isValidCIDR(ip))
-  ) {
-    errors.extra_allowed_ips =
-      "Each extra allowed IP must be valid CIDR (e.g. 192.168.1.0/24)";
-  }
-
-  if (form.endpoint && form.endpoint.trim() && !isValidEndpoint(form.endpoint)) {
-    errors.endpoint = "Must be host:port or IP:port (e.g. vpn.example.com:51820)";
+  if (form.endpoint?.trim() && !isValidEndpoint(form.endpoint)) {
+    errors.endpoint = "Must be host:port or IP:port";
   }
 
   return errors;
 }
+
+function QrCodeDialog({ client, onClose }: { client: ClientData | null; onClose: () => void }) {
+  const { data } = useQuery({
+    queryKey: ["client-qr", client?.Client.id],
+    queryFn: () => apiGet<{ qr_code: string }>(`/clients/${client!.Client.id}/qrcode`),
+    enabled: !!client,
+    staleTime: Infinity,
+  });
+
+  return (
+    <Dialog open={!!client} onOpenChange={() => onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{client?.Client.name} - QR Code</DialogTitle>
+        </DialogHeader>
+        {data?.qr_code ? (
+          <div className="flex justify-center p-4">
+            <img src={data.qr_code} alt={`QR code for ${client?.Client.name}`} className="max-w-[256px]" />
+          </div>
+        ) : (
+          <div className="flex justify-center p-8">
+            <Skeleton className="h-64 w-64" />
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 const emptyCreateForm = {
   name: "",
   email: "",
   public_key: "",
   preshared_key: "",
-  allocated_ips: [] as string[],
-  allowed_ips: ["0.0.0.0/0"],
-  extra_allowed_ips: [] as string[],
+  allocated_ips: "",
+  allowed_ips: "0.0.0.0/0",
+  extra_allowed_ips: "",
   use_server_dns: true,
-  enabled: true,
   additional_notes: "",
 };
 
@@ -165,7 +184,11 @@ export function ClientsPage() {
   const [subnetRange, setSubnetRange] = useState("");
 
   const [editDialog, setEditDialog] = useState<Client | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Client>>({});
+  const [editForm, setEditForm] = useState<EditFormState>({
+    name: "", public_key: "", allocated_ips: "", allowed_ips: "",
+    extra_allowed_ips: "", endpoint: "", additional_notes: "",
+    use_server_dns: true, preshared_key: "",
+  });
 
   const [emailDialog, setEmailDialog] = useState<Client | null>(null);
   const [emailAddress, setEmailAddress] = useState("");
@@ -184,7 +207,7 @@ export function ClientsPage() {
     if (!showCreate) return;
     const sr = subnetRange || "";
     apiGet<string[]>(`/suggest-client-ips${sr ? `?sr=${sr}` : ""}`)
-      .then((ips) => setNewClient((prev) => ({ ...prev, allocated_ips: ips })))
+      .then((ips) => setNewClient((prev) => ({ ...prev, allocated_ips: ips.join(", ") })))
       .catch(() => {});
   }, [subnetRange, showCreate]);
 
@@ -198,10 +221,10 @@ export function ClientsPage() {
     () =>
       editDialog
         ? validateClientForm({
-            name: editForm.name ?? "",
+            name: editForm.name,
             email: editDialog.email,
-            allocated_ips: editForm.allocated_ips ?? [],
-            allowed_ips: editForm.allowed_ips ?? [],
+            allocated_ips: editForm.allocated_ips,
+            allowed_ips: editForm.allowed_ips,
             extra_allowed_ips: editForm.extra_allowed_ips,
             endpoint: editForm.endpoint,
           }, true)
@@ -258,7 +281,13 @@ export function ClientsPage() {
   };
 
   const handleCreate = () => {
-    createClient.mutate(newClient, {
+    const payload = {
+      ...newClient,
+      allocated_ips: splitList(newClient.allocated_ips),
+      allowed_ips: splitList(newClient.allowed_ips),
+      extra_allowed_ips: splitList(newClient.extra_allowed_ips),
+    };
+    createClient.mutate(payload, {
       onSuccess: () => {
         toast.success("Client created");
         setShowCreate(false);
@@ -271,9 +300,10 @@ export function ClientsPage() {
   const handleOpenEdit = (client: Client) => {
     setEditForm({
       name: client.name,
-      allocated_ips: client.allocated_ips || [],
-      allowed_ips: client.allowed_ips || [],
-      extra_allowed_ips: client.extra_allowed_ips || [],
+      public_key: client.public_key,
+      allocated_ips: (client.allocated_ips || []).join(", "),
+      allowed_ips: (client.allowed_ips || []).join(", "),
+      extra_allowed_ips: (client.extra_allowed_ips || []).join(", "),
       endpoint: client.endpoint,
       additional_notes: client.additional_notes,
       use_server_dns: client.use_server_dns,
@@ -284,8 +314,14 @@ export function ClientsPage() {
 
   const handleSaveEdit = () => {
     if (!editDialog) return;
+    const payload = {
+      ...editForm,
+      allocated_ips: splitList(editForm.allocated_ips),
+      allowed_ips: splitList(editForm.allowed_ips),
+      extra_allowed_ips: splitList(editForm.extra_allowed_ips),
+    };
     updateClient.mutate(
-      { id: editDialog.id, ...editForm },
+      { id: editDialog.id, ...payload },
       {
         onSuccess: () => {
           toast.success("Client updated");
@@ -408,112 +444,77 @@ export function ClientsPage() {
           const client = cd.Client;
           return (
             <Card key={client.id}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-base font-medium">
-                  {client.name}
-                  {client.email && (
-                    <span className="ml-2 text-sm font-normal text-muted-foreground">
-                      {client.email}
-                    </span>
-                  )}
-                </CardTitle>
-                <div className="flex items-center gap-3">
-                  {isAdminUser ? (
-                    <label
-                      className="flex items-center gap-2 text-sm"
-                      htmlFor={`toggle-${client.id}`}
-                    >
+              <CardContent className="px-5 py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-semibold">{client.name}</span>
+                      <Badge variant={client.enabled ? "default" : "secondary"}>
+                        {client.enabled ? "Enabled" : "Disabled"}
+                      </Badge>
+                    </div>
+                    <code className="text-xs text-muted-foreground">{client.public_key}</code>
+                    <div className="text-muted-foreground">{client.email}</div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isAdminUser && (
                       <Switch
                         id={`toggle-${client.id}`}
                         checked={client.enabled}
-                        onCheckedChange={(checked) =>
-                          handleToggle(client.id, checked)
-                        }
+                        onCheckedChange={(checked) => handleToggle(client.id, checked)}
                         aria-label={`${client.enabled ? "Disable" : "Enable"} ${client.name}`}
                       />
-                      <Badge
-                        variant={client.enabled ? "default" : "secondary"}
-                      >
-                        {client.enabled ? "Enabled" : "Disabled"}
-                      </Badge>
-                    </label>
-                  ) : (
-                    <Badge
-                      variant={client.enabled ? "default" : "secondary"}
-                    >
-                      {client.enabled ? "Enabled" : "Disabled"}
-                    </Badge>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Allocated IPs</div>
+                    <div>{client.allocated_ips?.join(", ") || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Allowed IPs</div>
+                    <div>{client.allowed_ips?.join(", ") || "—"}</div>
+                  </div>
+                  {client.extra_allowed_ips && client.extra_allowed_ips.length > 0 && client.extra_allowed_ips.some(ip => ip) && (
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground">Extra Allowed IPs</div>
+                      <div>{client.extra_allowed_ips.join(", ")}</div>
+                    </div>
+                  )}
+                  {client.additional_notes && (
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <div className="text-xs font-medium text-muted-foreground">Notes</div>
+                      <div>{client.additional_notes}</div>
+                    </div>
                   )}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    <div>
-                      Allocated IPs: {client.allocated_ips?.join(", ") || "None"}
-                    </div>
-                    <div>
-                      Allowed IPs: {client.allowed_ips?.join(", ") || "None"}
-                    </div>
-                    {client.extra_allowed_ips && client.extra_allowed_ips.length > 0 && client.extra_allowed_ips.some(ip => ip) && (
-                      <div>
-                        Extra Allowed IPs: {client.extra_allowed_ips.join(", ")}
-                      </div>
-                    )}
-                    {client.additional_notes && (
-                      <div>Notes: {client.additional_notes}</div>
-                    )}
-                    <div className="flex gap-4 text-xs text-muted-foreground/70">
-                      <span>Created: {formatDate(client.created_at)}</span>
-                      <span>Updated: {formatDate(client.updated_at)}</span>
-                    </div>
+
+                <div className="mt-4 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex gap-4 text-xs text-muted-foreground">
+                    <span>Created {formatDate(client.created_at)}</span>
+                    <span>Updated {formatDate(client.updated_at)}</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {isAdminUser && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEdit(client)}
-                        aria-label={`Edit ${client.name}`}
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => handleOpenEdit(client)} aria-label={`Edit ${client.name}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
                     {isAdminUser && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEmail(client)}
-                        aria-label={`Email config to ${client.name}`}
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => handleOpenEmail(client)} aria-label={`Email config to ${client.name}`}>
                         <Mail className="h-4 w-4" />
                       </Button>
                     )}
-                    {cd.QRCode && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setQrDialog(cd)}
-                        aria-label={`Show QR code for ${client.name}`}
-                      >
-                        <QrCode className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDownload(client.id)}
-                      aria-label={`Download config for ${client.name}`}
-                    >
+                    <Button variant="ghost" size="icon" onClick={() => setQrDialog(cd)} aria-label={`Show QR code for ${client.name}`}>
+                      <QrCode className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDownload(client.id)} aria-label={`Download config for ${client.name}`}>
                       <Download className="h-4 w-4" />
                     </Button>
                     {isAdminUser && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(client.id, client.name)}
-                        aria-label={`Delete ${client.name}`}
-                      >
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(client.id, client.name)} aria-label={`Delete ${client.name}`}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     )}
@@ -535,22 +536,7 @@ export function ClientsPage() {
       </div>
 
       {/* QR Code Dialog */}
-      <Dialog open={!!qrDialog} onOpenChange={() => setQrDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{qrDialog?.Client.name} - QR Code</DialogTitle>
-          </DialogHeader>
-          {qrDialog?.QRCode && (
-            <div className="flex justify-center p-4">
-              <img
-                src={qrDialog.QRCode}
-                alt={`QR code for ${qrDialog.Client.name}`}
-                className="max-w-[256px]"
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <QrCodeDialog client={qrDialog} onClose={() => setQrDialog(null)} />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
@@ -638,11 +624,11 @@ export function ClientsPage() {
               <Input
                 id="new-ips"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={newClient.allocated_ips.join(", ")}
+                value={newClient.allocated_ips}
                 onChange={(e) =>
                   setNewClient((p) => ({
                     ...p,
-                    allocated_ips: splitList(e.target.value),
+                    allocated_ips: e.target.value,
                   }))
                 }
               />
@@ -655,11 +641,11 @@ export function ClientsPage() {
               <Input
                 id="new-allowed"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={newClient.allowed_ips.join(", ")}
+                value={newClient.allowed_ips}
                 onChange={(e) =>
                   setNewClient((p) => ({
                     ...p,
-                    allowed_ips: splitList(e.target.value),
+                    allowed_ips: e.target.value,
                   }))
                 }
               />
@@ -672,11 +658,11 @@ export function ClientsPage() {
               <Input
                 id="new-extra-allowed"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={newClient.extra_allowed_ips.join(", ")}
+                value={newClient.extra_allowed_ips}
                 onChange={(e) =>
                   setNewClient((p) => ({
                     ...p,
-                    extra_allowed_ips: splitList(e.target.value),
+                    extra_allowed_ips: e.target.value,
                   }))
                 }
               />
@@ -730,16 +716,6 @@ export function ClientsPage() {
               />
               <Label htmlFor="new-dns">Use server DNS</Label>
             </div>
-            <div className="flex items-center gap-3">
-              <Switch
-                id="new-enabled"
-                checked={newClient.enabled}
-                onCheckedChange={(v) =>
-                  setNewClient((p) => ({ ...p, enabled: v }))
-                }
-              />
-              <Label htmlFor="new-enabled">Enable after creation</Label>
-            </div>
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setShowCreate(false)}>
@@ -766,7 +742,7 @@ export function ClientsPage() {
               <Label htmlFor="edit-name">Name</Label>
               <Input
                 id="edit-name"
-                value={editForm.name ?? ""}
+                value={editForm.name}
                 onChange={(e) =>
                   setEditForm((p) => ({ ...p, name: e.target.value }))
                 }
@@ -790,11 +766,11 @@ export function ClientsPage() {
               <Input
                 id="edit-ips"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={editForm.allocated_ips?.join(", ") ?? ""}
+                value={editForm.allocated_ips}
                 onChange={(e) =>
                   setEditForm((p) => ({
                     ...p,
-                    allocated_ips: splitList(e.target.value),
+                    allocated_ips: e.target.value,
                   }))
                 }
               />
@@ -807,11 +783,11 @@ export function ClientsPage() {
               <Input
                 id="edit-allowed"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={editForm.allowed_ips?.join(", ") ?? ""}
+                value={editForm.allowed_ips}
                 onChange={(e) =>
                   setEditForm((p) => ({
                     ...p,
-                    allowed_ips: splitList(e.target.value),
+                    allowed_ips: e.target.value,
                   }))
                 }
               />
@@ -824,11 +800,11 @@ export function ClientsPage() {
               <Input
                 id="edit-extra-allowed"
                 placeholder="e.g. 10.0.0.2/32, 10.0.0.3/32"
-                value={editForm.extra_allowed_ips?.join(", ") ?? ""}
+                value={editForm.extra_allowed_ips}
                 onChange={(e) =>
                   setEditForm((p) => ({
                     ...p,
-                    extra_allowed_ips: splitList(e.target.value),
+                    extra_allowed_ips: e.target.value,
                   }))
                 }
               />
@@ -842,7 +818,7 @@ export function ClientsPage() {
               <Label htmlFor="edit-endpoint">Endpoint</Label>
               <Input
                 id="edit-endpoint"
-                value={editForm.endpoint ?? ""}
+                value={editForm.endpoint}
                 onChange={(e) =>
                   setEditForm((p) => ({ ...p, endpoint: e.target.value }))
                 }
@@ -855,7 +831,7 @@ export function ClientsPage() {
               <Label htmlFor="edit-notes">Notes</Label>
               <Textarea
                 id="edit-notes"
-                value={editForm.additional_notes ?? ""}
+                value={editForm.additional_notes}
                 onChange={(e) =>
                   setEditForm((p) => ({
                     ...p,
@@ -864,11 +840,23 @@ export function ClientsPage() {
                 }
               />
             </div>
-            <div className="grid gap-2 sm:col-span-2">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-pubkey">Public Key</Label>
+              <Input
+                id="edit-pubkey"
+                className="font-mono text-xs"
+                value={editForm.public_key}
+                onChange={(e) =>
+                  setEditForm((p) => ({ ...p, public_key: e.target.value }))
+                }
+              />
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="edit-psk">Preshared Key</Label>
               <Input
                 id="edit-psk"
-                value={editForm.preshared_key ?? ""}
+                className="font-mono text-xs"
+                value={editForm.preshared_key}
                 onChange={(e) =>
                   setEditForm((p) => ({ ...p, preshared_key: e.target.value }))
                 }
@@ -877,7 +865,7 @@ export function ClientsPage() {
             <div className="flex items-center gap-3 sm:col-span-2">
               <Switch
                 id="edit-dns"
-                checked={editForm.use_server_dns ?? false}
+                checked={editForm.use_server_dns}
                 onCheckedChange={(v) =>
                   setEditForm((p) => ({ ...p, use_server_dns: v }))
                 }

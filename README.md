@@ -74,10 +74,11 @@ wireguard-ui
 | `BASE_PATH` | URL base path (for reverse proxy) | `` |
 | `SESSION_SECRET` | Secret key for session cookies | random |
 | `SESSION_SECRET_FILE` | File containing session secret | |
-| `SESSION_MAX_DURATION` | Max session lifetime in days | `90` |
+| `SESSION_MAX_DURATION` | Max session lifetime in days | `1` |
 | `DISABLE_LOGIN` | Disable authentication (development only) | `false` |
 | `WGUI_LOG_LEVEL` | Log level: DEBUG, INFO, WARN, ERROR, OFF | `INFO` |
 | `WGUI_FAVICON_FILE_PATH` | Custom favicon file path | |
+| `WGUI_CONFIG_APPLY_DELAY` | Seconds to debounce config writes after mutations | `3` |
 
 ### OIDC / SSO (required for production)
 
@@ -117,7 +118,6 @@ wireguard-ui
 | `WGUI_DEFAULT_CLIENT_ALLOWED_IPS` | Default allowed IPs for new clients | `0.0.0.0/0` |
 | `WGUI_DEFAULT_CLIENT_EXTRA_ALLOWED_IPS` | Default extra allowed IPs | |
 | `WGUI_DEFAULT_CLIENT_USE_SERVER_DNS` | Use server DNS by default | `true` |
-| `WGUI_DEFAULT_CLIENT_ENABLE_AFTER_CREATION` | Enable client after creation | `true` |
 
 ### Email (SMTP)
 

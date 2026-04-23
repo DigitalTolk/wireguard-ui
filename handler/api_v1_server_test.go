@@ -35,7 +35,7 @@ func TestAPIRegenerateServerKeypair(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPost, "/api/v1/server/keypair", nil)
 	c := env.echo.NewContext(req, rec)
-	err := APIRegenerateServerKeypair(env.db)(c)
+	err := APIRegenerateServerKeypair(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -74,7 +74,7 @@ func TestAPIUpdateSettings(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/settings", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateSettings(env.db)(c)
+	err := APIUpdateSettings(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -91,7 +91,7 @@ func TestAPIUpdateSettings_InvalidDNS(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/settings", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateSettings(env.db)(c)
+	err := APIUpdateSettings(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -106,7 +106,7 @@ func TestAPIUpdateServerInterface(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/server/interface", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateServerInterface(env.db)(c)
+	err := APIUpdateServerInterface(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -120,7 +120,7 @@ func TestAPIUpdateServerInterface_InvalidAddress(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/server/interface", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateServerInterface(env.db)(c)
+	err := APIUpdateServerInterface(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -132,7 +132,7 @@ func TestAPIUpdateServerInterface_InvalidBody(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateServerInterface(env.db)(c)
+	err := APIUpdateServerInterface(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -144,7 +144,7 @@ func TestAPIUpdateSettings_InvalidBody(t *testing.T) {
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateSettings(env.db)(c)
+	err := APIUpdateSettings(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -165,7 +165,7 @@ func TestAPIUpdateSettings_FrontendJSON(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/settings", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateSettings(env.db)(c)
+	err := APIUpdateSettings(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -188,7 +188,7 @@ func TestAPIUpdateServerInterface_FrontendJSON(t *testing.T) {
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/server/interface", body)
 	c := env.echo.NewContext(req, rec)
-	err := APIUpdateServerInterface(env.db)(c)
+	err := APIUpdateServerInterface(env.db, env.cw)(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
