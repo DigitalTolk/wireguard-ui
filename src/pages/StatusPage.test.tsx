@@ -230,7 +230,7 @@ describe("StatusPage", () => {
 
   it("toggles sort direction when clicking same column header", async () => {
     const user = userEvent.setup();
-    const peerA = { ...connectedPeer, name: "Alpha", public_key: "pka1234567890123" };
+    const peerA = { ...disconnectedPeer, name: "Alpha", public_key: "pka1234567890123" };
     const peerB = { ...disconnectedPeer, name: "Bravo", public_key: "pkb1234567890123" };
     cleanup = mockFetch({
       "/status": [{ name: "wg0", peers: [peerA, peerB] }],
@@ -240,7 +240,9 @@ describe("StatusPage", () => {
       expect(screen.getByText("Alpha")).toBeInTheDocument();
     });
 
-    // Click Name header to toggle to desc
+    // First click on Name switches to name asc (Alpha before Bravo)
+    await user.click(screen.getByText("Name"));
+    // Second click toggles to name desc (Bravo before Alpha)
     await user.click(screen.getByText("Name"));
 
     // Now Bravo should come before Alpha

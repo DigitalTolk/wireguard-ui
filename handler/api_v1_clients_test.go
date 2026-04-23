@@ -364,6 +364,42 @@ func TestAPIUpdateClient_Success(t *testing.T) {
 	assert.Equal(t, "original@test.com", client.Email)
 }
 
+// Regression: editing a client must not change its enabled status.
+// The edit form does not send "enabled", so Go zero-value (false) was overwriting it.
+func TestAPIUpdateClient_PreservesEnabledStatus(t *testing.T) {
+	env := setupTestEnv(t)
+
+	now := time.Now().UTC()
+	id := xid.New().String()
+	env.db.SaveClient(model.Client{
+		ID: id, Name: "Stay Enabled", Email: "stay@test.com", PublicKey: "origpub",
+		AllocatedIPs: []string{"10.252.1.80/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	// update without sending "enabled" in the body (simulates the edit form)
+	body := map[string]interface{}{
+		"name":              "Stay Enabled",
+		"allocated_ips":     []string{"10.252.1.80/32"},
+		"allowed_ips":       []string{"0.0.0.0/0"},
+		"extra_allowed_ips": []string{},
+		"public_key":        "origpub",
+		"use_server_dns":    true,
+	}
+	req, rec := jsonRequest(http.MethodPut, "/api/v1/clients/"+id, body)
+	c := env.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(id)
+	err := APIUpdateClient(env.db, env.cw)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var client model.Client
+	parseJSON(t, rec, &client)
+	assert.True(t, client.Enabled, "editing a client must not disable it")
+}
+
 func TestAPIUpdateClient_InvalidID(t *testing.T) {
 	env := setupTestEnv(t)
 

@@ -206,3 +206,15 @@ func TestConfigWriter_ApplyNow(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "wg0.conf"))
 	assert.NoError(t, err, "ApplyNow should write config immediately")
 }
+
+// --- ConfigWriter.apply error paths with errStore ---
+
+func TestConfigWriter_Apply_GetServerError(t *testing.T) {
+	// errStore.GetServer() returns an error, so apply() should fail at the first db call
+	tmplFS := os.DirFS("../templates")
+	cw := NewConfigWriter(&errStore{}, tmplFS, 24*time.Hour)
+
+	err := cw.ApplyNow()
+	assert.Error(t, err, "ApplyNow should fail when GetServer returns error")
+	assert.Contains(t, err.Error(), "db error")
+}

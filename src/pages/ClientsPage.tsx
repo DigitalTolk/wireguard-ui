@@ -181,6 +181,7 @@ export function ClientsPage() {
   const [qrDialog, setQrDialog] = useState<ClientData | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newClient, setNewClient] = useState({ ...emptyCreateForm });
+  const [createTouched, setCreateTouched] = useState(false);
   const [subnetRange, setSubnetRange] = useState("");
 
   const [editDialog, setEditDialog] = useState<Client | null>(null);
@@ -276,6 +277,7 @@ export function ClientsPage() {
 
   const handleOpenCreate = () => {
     setNewClient({ ...emptyCreateForm });
+    setCreateTouched(false);
     setSubnetRange("");
     setShowCreate(true);
   };
@@ -568,7 +570,7 @@ export function ClientsPage() {
           <DialogHeader>
             <DialogTitle>New Client</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-5 py-4 sm:grid-cols-2">
+          <div className="grid gap-5 py-4 sm:grid-cols-2" onChange={() => setCreateTouched(true)}>
             <div className="grid gap-2">
               <Label htmlFor="new-name">Name</Label>
               <Input
@@ -579,7 +581,7 @@ export function ClientsPage() {
                   setNewClient((p) => ({ ...p, name: e.target.value }))
                 }
               />
-              {createErrors.name && (
+              {createTouched && createErrors.name && (
                 <p className="text-destructive">{createErrors.name}</p>
               )}
             </div>
@@ -594,7 +596,7 @@ export function ClientsPage() {
                   setNewClient((p) => ({ ...p, email: e.target.value }))
                 }
               />
-              {createErrors.email && (
+              {createTouched && createErrors.email && (
                 <p className="text-destructive">{createErrors.email}</p>
               )}
             </div>
@@ -632,7 +634,7 @@ export function ClientsPage() {
                   }))
                 }
               />
-              {createErrors.allocated_ips && (
+              {createTouched && createErrors.allocated_ips && (
                 <p className="text-destructive">{createErrors.allocated_ips}</p>
               )}
             </div>
@@ -649,7 +651,7 @@ export function ClientsPage() {
                   }))
                 }
               />
-              {createErrors.allowed_ips && (
+              {createTouched && createErrors.allowed_ips && (
                 <p className="text-destructive">{createErrors.allowed_ips}</p>
               )}
             </div>
@@ -666,7 +668,7 @@ export function ClientsPage() {
                   }))
                 }
               />
-              {createErrors.extra_allowed_ips && (
+              {createTouched && createErrors.extra_allowed_ips && (
                 <p className="text-destructive">{createErrors.extra_allowed_ips}</p>
               )}
             </div>

@@ -539,18 +539,93 @@ func TestDoRefreshSession_EligibleForRefresh(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	// Step 2: Call doRefreshSession with the session cookies
+	// Deduplicate cookies: keep only the LAST cookie for each name
+	allCookies := rec1.Result().Cookies()
+	lastCookie := make(map[string]*http.Cookie)
+	for _, cookie := range allCookies {
+		lastCookie[cookie.Name] = cookie
+	}
+
 	env.echo.GET("/trigger-refresh", func(c echo.Context) error {
 		doRefreshSession(c)
 		return c.String(http.StatusOK, "ok")
 	})
 
-	cookies := rec1.Result().Cookies()
 	req2, rec2 := jsonRequest(http.MethodGet, "/trigger-refresh", nil)
-	for _, cookie := range cookies {
+	for _, cookie := range lastCookie {
 		req2.AddCookie(cookie)
 	}
 	env.echo.ServeHTTP(rec2, req2)
 	assert.Equal(t, http.StatusOK, rec2.Code)
+}
+
+func TestDoRefreshSession_SuccessfulRefresh_VerifyUpdatedAt(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 86400 * 90 // 90 days
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a remember-me session, then in the same handler, manipulate it
+	// to look like it was updated 2 days ago (>24h threshold).
+	// IMPORTANT: we must only forward the LAST session cookie to avoid
+	// gorilla/sessions reading the first (unmanipulated) one.
+	env.echo.GET("/create-refresh-session", func(c echo.Context) error {
+		createSession(c, "refreshme", true, uint32(99999), true)
+
+		sess, _ := session.Get("session", c)
+		now := time.Now().UTC().Unix()
+		sess.Values["created_at"] = now - 259200 // 3 days ago
+		sess.Values["updated_at"] = now - 172800 // 2 days ago (well past 24h)
+		sess.Save(c.Request(), c.Response())
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-refresh-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	// Deduplicate cookies: keep only the LAST cookie for each name
+	// (gorilla/sessions picks the first match, and createSession + sess.Save
+	// both write a "session" cookie; we need the manipulated one)
+	allCookies := rec1.Result().Cookies()
+	lastCookie := make(map[string]*http.Cookie)
+	for _, cookie := range allCookies {
+		lastCookie[cookie.Name] = cookie
+	}
+
+	// Now call the RefreshSession middleware wrapping a simple handler
+	var handlerCalled bool
+	env.echo.GET("/refresh-middleware-test", RefreshSession(func(c echo.Context) error {
+		handlerCalled = true
+		return c.String(http.StatusOK, "refreshed")
+	}))
+
+	req2, rec2 := jsonRequest(http.MethodGet, "/refresh-middleware-test", nil)
+	for _, cookie := range lastCookie {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.True(t, handlerCalled, "next handler should be called after refresh")
+
+	// Verify the session was refreshed: response should contain a session_token cookie
+	refreshCookies := rec2.Result().Cookies()
+	foundRefresh := false
+	for _, cookie := range refreshCookies {
+		if cookie.Name == "session_token" {
+			foundRefresh = true
+			break
+		}
+	}
+	assert.True(t, foundRefresh, "doRefreshSession should emit a refreshed session_token cookie")
 }
 
 // --- Integration tests: createSession + isValidSession ---
@@ -1038,6 +1113,60 @@ func TestIsAdmin_WithAdminSession(t *testing.T) {
 	}
 	env.echo.ServeHTTP(rec2, req2)
 	assert.True(t, adminResult, "Admin session should return true for isAdmin")
+}
+
+// --- isValidSession: expired time bounds ---
+
+func TestIsValidSession_ExpiredTimeBounds(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	origMaxDuration := util.SessionMaxDuration
+	util.SessionMaxDuration = 100 // 100 seconds (short, so createdAt + 100 < now easily)
+	defer func() {
+		util.DisableLogin = origDisable
+		util.SessionMaxDuration = origMaxDuration
+	}()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a session with timestamps that will fail time bounds
+	env.echo.GET("/create-expired-session", func(c echo.Context) error {
+		createSession(c, "timeuser", true, uint32(77777), true)
+
+		// Manipulate: created 200s ago (past max duration of 100s)
+		sess, _ := session.Get("session", c)
+		now := time.Now().UTC().Unix()
+		sess.Values["created_at"] = now - 200 // past max duration
+		sess.Values["updated_at"] = now - 50  // recent enough that expiration > now
+		sess.Save(c.Request(), c.Response())
+
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/create-expired-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	// Deduplicate cookies (keep last for each name)
+	allCookies := rec1.Result().Cookies()
+	lastCookie := make(map[string]*http.Cookie)
+	for _, c := range allCookies {
+		lastCookie[c.Name] = c
+	}
+
+	var valid bool
+	env.echo.GET("/validate-expired-bounds", func(c echo.Context) error {
+		valid = isValidSession(c)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	req2, rec2 := jsonRequest(http.MethodGet, "/validate-expired-bounds", nil)
+	for _, cookie := range lastCookie {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.False(t, valid, "Session should be invalid when time bounds are exceeded")
 }
 
 // --- isValidSession: user not in CRC32 map ---

@@ -351,3 +351,78 @@ func TestAPIAdmin_PassesThrough(t *testing.T) {
 	assert.True(t, called)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestAPIGetMe_EmptyUsername(t *testing.T) {
+	// Test the path where currentUser returns "" (empty session username)
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a session and then clear the username to empty string
+	env.echo.GET("/setup-empty-username", func(c echo.Context) error {
+		createSession(c, "", false, uint32(0), false)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	env.echo.GET("/api/v1/auth/me-empty", APIGetMe(env.db))
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-empty-username", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/api/v1/auth/me-empty", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusUnauthorized, rec2.Code)
+}
+
+func TestAPIGetMe_DBError(t *testing.T) {
+	// Test the error path when GetUserByName fails (user deleted from DB after session created)
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false
+
+	// Create a session for a user that exists
+	now := time.Now().UTC()
+	user := model.User{Username: "doomed", Email: "doomed@test.com", Admin: false, OIDCSub: "sub-doomed", CreatedAt: now, UpdatedAt: now}
+	env.db.SaveUser(user)
+	crc := util.GetDBUserCRC32(user)
+
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["doomed"] = crc
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "doomed")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	env.echo.GET("/setup-doomed-session", func(c echo.Context) error {
+		createSession(c, "doomed", false, crc, false)
+		return c.String(http.StatusOK, "ok")
+	})
+
+	// Use errStore for the handler so GetUserByName always fails
+	env.echo.GET("/api/v1/auth/me-dberror", APIGetMe(&errStore{}))
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-doomed-session", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	cookies := rec1.Result().Cookies()
+	req2, rec2 := jsonRequest(http.MethodGet, "/api/v1/auth/me-dberror", nil)
+	for _, cookie := range cookies {
+		req2.AddCookie(cookie)
+	}
+	env.echo.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusInternalServerError, rec2.Code)
+}

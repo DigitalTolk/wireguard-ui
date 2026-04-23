@@ -139,4 +139,199 @@ describe("WolPage interactions", () => {
       expect(screen.getByText("Server2")).toBeInTheDocument();
     });
   });
+
+  it("handles wake host error", async () => {
+    const user = userEvent.setup();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/wake") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Wake failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/wol-hosts")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [host],
+          text: async () => JSON.stringify([host]),
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<WolPage />);
+    await waitFor(() => expect(screen.getByText("Server1")).toBeInTheDocument());
+
+    await user.click(screen.getByLabelText("Wake Server1"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/wake"),
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
+  it("handles delete host error", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/wol-hosts/") && init?.method === "DELETE") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Delete failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/wol-hosts")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [host],
+          text: async () => JSON.stringify([host]),
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<WolPage />);
+    await waitFor(() => expect(screen.getByText("Server1")).toBeInTheDocument());
+
+    await user.click(screen.getByLabelText("Delete Server1"));
+    expect(window.confirm).toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/wol-hosts/"),
+        expect.objectContaining({ method: "DELETE" })
+      );
+    });
+  });
+
+  it("handles create host error", async () => {
+    const user = userEvent.setup();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/wol-hosts") && init?.method === "POST") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: { code: "INTERNAL", message: "Create failed" } }),
+          text: async () => "error",
+          headers: new Headers(),
+        } as Response;
+      }
+      if (url.includes("/wol-hosts")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [],
+          text: async () => "[]",
+          headers: new Headers(),
+        } as Response;
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    cleanup = () => { globalThis.fetch = originalFetch; };
+
+    renderWithProviders(<WolPage />);
+    await waitFor(() => expect(screen.getByText("New Host")).toBeInTheDocument());
+
+    await user.click(screen.getByText("New Host"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. File Server")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("e.g. File Server"), "Test Server");
+    await user.type(screen.getByPlaceholderText("AA:BB:CC:DD:EE:FF"), "11:22:33:44:55:66");
+
+    await user.click(screen.getByText("Create"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/wol-hosts"),
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
+  it("shows validation error for empty name in create dialog", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/wol-hosts": [] });
+    renderWithProviders(<WolPage />);
+
+    await waitFor(() => expect(screen.getByText("New Host")).toBeInTheDocument());
+
+    await user.click(screen.getByText("New Host"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("AA:BB:CC:DD:EE:FF")).toBeInTheDocument();
+    });
+
+    // Type only MAC, leave name empty
+    await user.type(screen.getByPlaceholderText("AA:BB:CC:DD:EE:FF"), "11:22:33:44:55:66");
+
+    // The create button should be disabled because name is missing
+    const createBtn = screen.getByText("Create").closest("button");
+    expect(createBtn).toBeDisabled();
+  });
+
+  it("shows validation error for invalid MAC format in create dialog", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/wol-hosts": [] });
+    renderWithProviders(<WolPage />);
+
+    await waitFor(() => expect(screen.getByText("New Host")).toBeInTheDocument());
+
+    await user.click(screen.getByText("New Host"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. File Server")).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByPlaceholderText("e.g. File Server"), "Test");
+    await user.type(screen.getByPlaceholderText("AA:BB:CC:DD:EE:FF"), "invalid-mac");
+
+    await waitFor(() => {
+      expect(screen.getByText(/Invalid MAC format/)).toBeInTheDocument();
+    });
+  });
+
+  it("shows validation errors for empty name and MAC in create dialog", async () => {
+    const user = userEvent.setup();
+    cleanup = mockFetch({ "/wol-hosts": [] });
+    renderWithProviders(<WolPage />);
+
+    await waitFor(() => expect(screen.getByText("New Host")).toBeInTheDocument());
+
+    await user.click(screen.getByText("New Host"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("e.g. File Server")).toBeInTheDocument();
+    });
+
+    // Both fields empty - create should be disabled
+    const createBtn = screen.getByText("Create").closest("button");
+    expect(createBtn).toBeDisabled();
+
+    // Verify the errors exist
+    expect(screen.getByText("Name is required")).toBeInTheDocument();
+    expect(screen.getByText("MAC address is required")).toBeInTheDocument();
+  });
 });
