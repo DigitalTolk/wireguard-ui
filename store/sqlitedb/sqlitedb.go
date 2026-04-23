@@ -265,7 +265,7 @@ func (o *SqliteDB) GetServer() (model.Server, error) {
 // GetClients returns all clients, optionally with QR codes
 func (o *SqliteDB) GetClients(hasQRCode bool) ([]model.ClientData, error) {
 	rows, err := o.db.Query(
-		`SELECT id, private_key, public_key, preshared_key, name, email, telegram_userid,
+		`SELECT id, private_key, public_key, preshared_key, name, email,
 		        subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
 		        endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at
 		 FROM clients`,
@@ -309,7 +309,7 @@ func (o *SqliteDB) GetClientByID(clientID string, qrCodeSettings model.QRCodeSet
 	clientData := model.ClientData{}
 
 	row := o.db.QueryRow(
-		`SELECT id, private_key, public_key, preshared_key, name, email, telegram_userid,
+		`SELECT id, private_key, public_key, preshared_key, name, email,
 		        subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
 		        endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at
 		 FROM clients WHERE id = ?`, clientID,
@@ -347,17 +347,16 @@ func (o *SqliteDB) SaveClient(client model.Client) error {
 	extraJSON, _ := json.Marshal(client.ExtraAllowedIPs)
 
 	_, err := o.db.Exec(
-		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email, telegram_userid,
+		`INSERT INTO clients (id, private_key, public_key, preshared_key, name, email,
 		                      subnet_ranges, allocated_ips, allowed_ips, extra_allowed_ips,
 		                      endpoint, additional_notes, use_server_dns, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   private_key = excluded.private_key,
 		   public_key = excluded.public_key,
 		   preshared_key = excluded.preshared_key,
 		   name = excluded.name,
 		   email = excluded.email,
-		   telegram_userid = excluded.telegram_userid,
 		   subnet_ranges = excluded.subnet_ranges,
 		   allocated_ips = excluded.allocated_ips,
 		   allowed_ips = excluded.allowed_ips,
@@ -368,7 +367,7 @@ func (o *SqliteDB) SaveClient(client model.Client) error {
 		   enabled = excluded.enabled,
 		   updated_at = excluded.updated_at`,
 		client.ID, client.PrivateKey, client.PublicKey, client.PresharedKey,
-		client.Name, client.Email, client.TgUserid,
+		client.Name, client.Email,
 		string(subnetJSON), string(allocJSON), string(allowJSON), string(extraJSON),
 		client.Endpoint, client.AdditionalNotes, client.UseServerDNS, client.Enabled,
 		client.CreatedAt, client.UpdatedAt,
@@ -500,7 +499,7 @@ func scanClientFrom(s scanner) (model.Client, error) {
 	var subnetJSON, allocJSON, allowJSON, extraJSON string
 	err := s.Scan(
 		&c.ID, &c.PrivateKey, &c.PublicKey, &c.PresharedKey,
-		&c.Name, &c.Email, &c.TgUserid,
+		&c.Name, &c.Email,
 		&subnetJSON, &allocJSON, &allowJSON, &extraJSON,
 		&c.Endpoint, &c.AdditionalNotes, &c.UseServerDNS, &c.Enabled,
 		&c.CreatedAt, &c.UpdatedAt,

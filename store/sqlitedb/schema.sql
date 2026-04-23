@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS clients (
     preshared_key     TEXT NOT NULL DEFAULT '',
     name              TEXT NOT NULL DEFAULT '',
     email             TEXT NOT NULL DEFAULT '',
-    telegram_userid   TEXT NOT NULL DEFAULT '',
     subnet_ranges     TEXT NOT NULL DEFAULT '[]',
     allocated_ips     TEXT NOT NULL DEFAULT '[]',
     allowed_ips       TEXT NOT NULL DEFAULT '[]',

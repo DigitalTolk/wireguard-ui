@@ -7,6 +7,8 @@ A modern web interface to manage your WireGuard VPN setup.
 
 Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui) by [Khanh Ngo](https://github.com/ngoduykhanh).
 
+![WireGuard UI Screenshot](screenshot.png)
+
 ## Features
 
 - Modern React frontend with [shadcn/ui](https://ui.shadcn.com/) components
