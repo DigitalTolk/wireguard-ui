@@ -1,5 +1,5 @@
 # Stage 1: Build React SPA
-FROM node:24-alpine AS frontend
+FROM node:25-alpine AS frontend
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
