@@ -147,11 +147,32 @@ jobs:
             -ldflags="-s -w -X 'main.appVersion=${{ github.ref_name }}' -X 'main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)' -X 'main.gitCommit=${{ github.sha }}'" \
             -o wireguard-ui .
           tar czf "${ARCHIVE}" wireguard-ui
-          sha256sum "${ARCHIVE}" >> checksums.txt
 
-      - name: Upload release assets
+      - name: Upload binary
         uses: softprops/action-gh-release@v3
         with:
-          files: |
-            wireguard-ui-*.tar.gz
-            checksums.txt
+          files: wireguard-ui-*.tar.gz
+
+  checksums:
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1
+        with:
+          tag: ${{ github.ref_name }}
+          fileName: "wireguard-ui-*.tar.gz"
+          out-file-path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum wireguard-ui-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Upload checksums
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/checksums.txt
