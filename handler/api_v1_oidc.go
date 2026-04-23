@@ -111,7 +111,8 @@ func APIHandleOIDCCallback(oidcProvider *OIDCProvider, db store.IStore) echo.Han
 		if errParam := c.QueryParam("error"); errParam != "" {
 			errDesc := c.QueryParam("error_description")
 			log.Errorf("OIDC error: %s - %s", errParam, errDesc)
-			return apiError(c, http.StatusUnauthorized, "OIDC_ERROR", fmt.Sprintf("Authentication failed: %s", errDesc))
+			// return 403 (not 401) to avoid the SPA redirect loop — 401 triggers OIDC login again
+			return apiError(c, http.StatusForbidden, "OIDC_ERROR", fmt.Sprintf("Authentication failed: %s", errDesc))
 		}
 
 		// exchange code for token

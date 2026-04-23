@@ -405,13 +405,22 @@ func APIDeleteClient(db store.IStore, cw *ConfigWriter) echo.HandlerFunc {
 			return apiBadRequest(c, "Invalid client ID")
 		}
 
+		// capture details before deletion for audit log
+		clientData, err := db.GetClientByID(clientID, model.QRCodeSettings{Enabled: false})
+		if err != nil {
+			return apiNotFound(c, "Client not found")
+		}
+
 		if err := db.DeleteClient(clientID); err != nil {
 			return apiInternalError(c, "Cannot delete client")
 		}
 
 		cw.Trigger()
 		log.Infof("Deleted wireguard client: %s", clientID)
-		auditLogEvent(c, "client.delete", "client", clientID, nil)
+		auditLogEvent(c, "client.delete", "client", clientID, map[string]string{
+			"name":  clientData.Client.Name,
+			"email": clientData.Client.Email,
+		})
 		return c.NoContent(http.StatusNoContent)
 	}
 }

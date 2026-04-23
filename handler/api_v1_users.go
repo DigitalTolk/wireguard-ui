@@ -41,6 +41,28 @@ func APIPatchUserAdmin(db store.IStore) echo.HandlerFunc {
 			return apiNotFound(c, "User not found")
 		}
 
+		// prevent demoting yourself
+		if !body.Admin && username == currentUser(c) {
+			return apiBadRequest(c, "Cannot remove your own admin role")
+		}
+
+		// prevent removing the last admin
+		if !body.Admin && user.Admin {
+			users, err := db.GetUsers()
+			if err != nil {
+				return apiInternalError(c, "Cannot verify admin count")
+			}
+			adminCount := 0
+			for _, u := range users {
+				if u.Admin {
+					adminCount++
+				}
+			}
+			if adminCount <= 1 {
+				return apiBadRequest(c, "Cannot remove the last admin")
+			}
+		}
+
 		user.Admin = body.Admin
 		user.UpdatedAt = time.Now().UTC()
 		if err := db.SaveUser(user); err != nil {

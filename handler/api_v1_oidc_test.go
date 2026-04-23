@@ -288,7 +288,7 @@ func TestAPIHandleOIDCCallback_ErrorParam(t *testing.T) {
 		req2.AddCookie(cookie)
 	}
 	env.echo.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusUnauthorized, rec2.Code)
+	assert.Equal(t, http.StatusForbidden, rec2.Code)
 }
 
 func TestAPIHandleOIDCCallback_TokenExchangeFailure(t *testing.T) {
