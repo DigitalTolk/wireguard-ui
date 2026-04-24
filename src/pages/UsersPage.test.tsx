@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders, mockFetch } from "@/test/test-utils";
 import { UsersPage } from "./UsersPage";
 
+const adminMe = { username: "admin", email: "admin@company.com", display_name: "Admin User", admin: true };
+
 describe("UsersPage", () => {
   let cleanup: () => void;
 
@@ -12,7 +14,7 @@ describe("UsersPage", () => {
   });
 
   it("shows heading", async () => {
-    cleanup = mockFetch({ "/users": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/users": [] });
     renderWithProviders(<UsersPage />);
     await waitFor(() => {
       expect(screen.getByText("Users")).toBeInTheDocument();
@@ -20,7 +22,7 @@ describe("UsersPage", () => {
   });
 
   it("shows empty state with correct colSpan message", async () => {
-    cleanup = mockFetch({ "/users": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/users": [] });
     renderWithProviders(<UsersPage />);
     await waitFor(() => {
       const cell = screen.getByText("No users have logged in yet");
@@ -32,6 +34,7 @@ describe("UsersPage", () => {
 
   it("renders user list", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "admin", email: "admin@company.com", display_name: "Admin User", admin: true, updated_at: "2026-04-22T12:00:00Z" },
         { username: "jdoe", email: "jdoe@company.com", display_name: "Jane Doe", admin: false, updated_at: "2026-04-21T10:00:00Z" },
@@ -47,7 +50,7 @@ describe("UsersPage", () => {
   });
 
   it("shows SSO explanation text", async () => {
-    cleanup = mockFetch({ "/users": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/users": [] });
     renderWithProviders(<UsersPage />);
     await waitFor(() => {
       expect(screen.getByText(/managed through your SSO provider/)).toBeInTheDocument();
@@ -56,6 +59,7 @@ describe("UsersPage", () => {
 
   it("shows Admin badge for admin users and User badge for non-admin users", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "admin", email: "admin@company.com", display_name: "Admin User", admin: true, updated_at: "2026-04-22T12:00:00Z" },
         { username: "jdoe", email: "jdoe@company.com", display_name: "Jane Doe", admin: false, updated_at: "2026-04-21T10:00:00Z" },
@@ -68,8 +72,9 @@ describe("UsersPage", () => {
     });
   });
 
-  it("renders admin toggle switch for each user", async () => {
+  it("hides admin toggle for the current user", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "admin", email: "admin@company.com", display_name: "Admin User", admin: true, updated_at: "2026-04-22T12:00:00Z" },
         { username: "jdoe", email: "jdoe@company.com", display_name: "Jane Doe", admin: false, updated_at: "2026-04-21T10:00:00Z" },
@@ -77,17 +82,18 @@ describe("UsersPage", () => {
     });
     renderWithProviders(<UsersPage />);
     await waitFor(() => {
-      expect(screen.getByLabelText("Toggle admin for admin")).toBeInTheDocument();
       expect(screen.getByLabelText("Toggle admin for jdoe")).toBeInTheDocument();
     });
-    // Admin switch should be checked, non-admin should not
-    expect(screen.getByLabelText("Toggle admin for admin")).toBeChecked();
+    // Toggle should not be rendered for the logged-in user
+    expect(screen.queryByLabelText("Toggle admin for admin")).not.toBeInTheDocument();
+    // Toggle for other users should work normally
     expect(screen.getByLabelText("Toggle admin for jdoe")).not.toBeChecked();
   });
 
   it("triggers toggleAdmin mutation when switch is clicked", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "jdoe", email: "jdoe@company.com", display_name: "Jane Doe", admin: false, updated_at: "2026-04-21T10:00:00Z" },
       ],
@@ -117,6 +123,15 @@ describe("UsersPage", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => adminMe,
+          text: async () => JSON.stringify(adminMe),
+          headers: new Headers(),
+        } as Response;
+      }
       if (url.includes("/users") && !url.includes("/admin")) {
         return {
           ok: true,
@@ -160,6 +175,7 @@ describe("UsersPage", () => {
 
   it("shows dash for missing display_name and email", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "noinfo", email: "", display_name: "", admin: false, updated_at: "" },
       ],
@@ -175,6 +191,7 @@ describe("UsersPage", () => {
 
   it("shows dash when updated_at is missing", async () => {
     cleanup = mockFetch({
+      "/auth/me": adminMe,
       "/users": [
         { username: "newuser", email: "new@co.com", display_name: "New User", admin: false, updated_at: "" },
       ],
@@ -189,7 +206,7 @@ describe("UsersPage", () => {
   });
 
   it("shows table headers including Role column", async () => {
-    cleanup = mockFetch({ "/users": [] });
+    cleanup = mockFetch({ "/auth/me": adminMe, "/users": [] });
     renderWithProviders(<UsersPage />);
     await waitFor(() => {
       expect(screen.getByText("Username")).toBeInTheDocument();

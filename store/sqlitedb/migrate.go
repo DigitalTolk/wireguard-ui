@@ -200,6 +200,7 @@ func migrateClients(db *SqliteDB, jsonDBPath string) error {
 		return err
 	}
 
+	seenNames := make(map[string]int)
 	count := 0
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -210,6 +211,13 @@ func migrateClients(db *SqliteDB, jsonDBPath string) error {
 		if err := readJSONFile(filepath.Join(clientsDir, entry.Name()), &c); err != nil {
 			log.Warnf("  Skipping client file %s: %v", entry.Name(), err)
 			continue
+		}
+
+		seenNames[c.Name]++
+		if seenNames[c.Name] > 1 {
+			newName := fmt.Sprintf("%s-%d", c.Name, seenNames[c.Name])
+			log.Warnf("  Duplicate client name %q (id=%s), renaming to %q", c.Name, c.ID, newName)
+			c.Name = newName
 		}
 
 		if err := db.SaveClient(c); err != nil {

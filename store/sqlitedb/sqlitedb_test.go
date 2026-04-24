@@ -1373,6 +1373,43 @@ func TestMigrateFromJSON_MultipleClients(t *testing.T) {
 	assert.Len(t, clients, 3)
 }
 
+func TestMigrateFromJSON_DuplicateClientNames(t *testing.T) {
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
+
+	db := newTestDB(t)
+	require.NoError(t, db.Init())
+
+	jsonDBPath := t.TempDir()
+	serverDir := filepath.Join(jsonDBPath, "server")
+	require.NoError(t, os.MkdirAll(serverDir, 0755))
+
+	clientsDir := filepath.Join(jsonDBPath, "clients")
+	require.NoError(t, os.MkdirAll(clientsDir, 0755))
+
+	// Create three clients with the same name
+	for i := 1; i <= 3; i++ {
+		clientJSON := fmt.Sprintf(`{"id":"dupclient%d","name":"Same Name","public_key":"pub%d","allocated_ips":["10.0.0.%d/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`, i, i, i+1)
+		require.NoError(t, os.WriteFile(filepath.Join(clientsDir, fmt.Sprintf("client%d.json", i)), []byte(clientJSON), 0644))
+	}
+
+	err := MigrateFromJSON(db, jsonDBPath)
+	require.NoError(t, err)
+
+	clients, err := db.GetClients(false)
+	require.NoError(t, err)
+	assert.Len(t, clients, 3)
+
+	names := make(map[string]bool)
+	for _, c := range clients {
+		names[c.Client.Name] = true
+	}
+	assert.Len(t, names, 3, "all client names should be unique after migration")
+	assert.True(t, names["Same Name"])
+	assert.True(t, names["Same Name-2"])
+	assert.True(t, names["Same Name-3"])
+}
+
 func TestMigrateFromJSON_InvalidKeypairJSON(t *testing.T) {
 	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
 	defer os.Unsetenv("WGUI_ENDPOINT_ADDRESS")
@@ -1620,13 +1657,23 @@ func TestMigrateFromJSON_ClientSaveFailure(t *testing.T) {
 	clientJSON1 := `{"id":"dup1","name":"DupClient","public_key":"pub1","allocated_ips":[],"allowed_ips":[],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`
 	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client1.json"), []byte(clientJSON1), 0644))
 
-	// Create a second client with duplicate name (unique index on name will cause failure)
+	// Create a second client with duplicate name — migration should handle gracefully
 	clientJSON2 := `{"id":"dup2","name":"DupClient","public_key":"pub2","allocated_ips":[],"allowed_ips":[],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`
 	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client2.json"), []byte(clientJSON2), 0644))
 
 	err := MigrateFromJSON(db, jsonDBPath)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "migrate client")
+	require.NoError(t, err)
+
+	clients, err := db.GetClients(false)
+	require.NoError(t, err)
+	assert.Len(t, clients, 2)
+
+	names := make(map[string]bool)
+	for _, c := range clients {
+		names[c.Client.Name] = true
+	}
+	assert.True(t, names["DupClient"])
+	assert.True(t, names["DupClient-2"])
 }
 
 // --- Migration integration tests (simulate production upgrade scenario) ---
