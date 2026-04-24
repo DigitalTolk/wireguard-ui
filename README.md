@@ -148,6 +148,14 @@ wireguard-ui
 | `WGUI_MANAGE_START` | Start WireGuard when container starts | `false` |
 | `WGUI_MANAGE_RESTART` | Restart WireGuard when config changes | `false` |
 
+## Health Check
+
+A health endpoint is available at `/_health` (or `{BASE_PATH}/_health` when using a base path). It returns `200 OK` with body `ok` and requires no authentication.
+
+```sh
+curl http://localhost:5000/_health
+```
+
 ## Development
 
 ```sh

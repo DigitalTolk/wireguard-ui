@@ -14,9 +14,11 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 import type { User } from "@/lib/types";
+import { useAuth } from "@/hooks/useAuth";
 
 export function UsersPage() {
   const qc = useQueryClient();
+  const { data: me } = useAuth();
   const { data: users, isLoading } = useQuery({
     queryKey: ["users"],
     queryFn: () => apiGet<User[]>("/users"),
@@ -60,13 +62,15 @@ export function UsersPage() {
                   <TableCell>{user.email || "-"}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Switch
-                        checked={user.admin}
-                        onCheckedChange={(checked) =>
-                          toggleAdmin.mutate({ username: user.username, admin: checked })
-                        }
-                        aria-label={`Toggle admin for ${user.username}`}
-                      />
+                      {me?.username !== user.username && (
+                        <Switch
+                          checked={user.admin}
+                          onCheckedChange={(checked) =>
+                            toggleAdmin.mutate({ username: user.username, admin: checked })
+                          }
+                          aria-label={`Toggle admin for ${user.username}`}
+                        />
+                      )}
                       <Badge variant={user.admin ? "default" : "secondary"}>
                         {user.admin ? "Admin" : "User"}
                       </Badge>
