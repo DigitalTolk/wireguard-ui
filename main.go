@@ -251,7 +251,17 @@ func main() {
 	// serve static files (JS, CSS, fonts)
 	app.GET(util.BasePath+"/static/*", echo.WrapHandler(http.StripPrefix(util.BasePath+"/", assetHandler)))
 
-	// SPA catch-all: serve index.html for all non-file routes
+	// SPA routes: only these paths serve index.html for client-side routing
+	spaRoutes := map[string]bool{
+		"":         true,
+		"status":   true,
+		"server":   true,
+		"settings": true,
+		"users":    true,
+		"wol":      true,
+		"audit":    true,
+		"about":    true,
+	}
 	serveIndex := func(c echo.Context) error {
 		if indexHTML == nil {
 			return c.String(http.StatusNotFound, "Not found")
@@ -266,12 +276,16 @@ func main() {
 	app.GET(util.BasePath+"/*", func(c echo.Context) error {
 		reqPath := strings.TrimPrefix(c.Request().URL.Path, util.BasePath+"/")
 		if reqPath != "" {
+			// serve embedded asset if it exists
 			if f, err := assetsDir.Open(reqPath); err == nil {
 				f.Close()
 				return wrappedAssetHandler(c)
 			}
 		}
-		return serveIndex(c)
+		if spaRoutes[reqPath] {
+			return serveIndex(c)
+		}
+		return c.String(http.StatusNotFound, "Not found")
 	})
 
 	// Start server

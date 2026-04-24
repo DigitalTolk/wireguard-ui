@@ -1387,11 +1387,13 @@ func TestMigrateFromJSON_DuplicateClientNames(t *testing.T) {
 	clientsDir := filepath.Join(jsonDBPath, "clients")
 	require.NoError(t, os.MkdirAll(clientsDir, 0755))
 
-	// Create three clients with the same name
-	for i := 1; i <= 3; i++ {
-		clientJSON := fmt.Sprintf(`{"id":"dupclient%d","name":"Same Name","public_key":"pub%d","allocated_ips":["10.0.0.%d/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`, i, i, i+1)
-		require.NoError(t, os.WriteFile(filepath.Join(clientsDir, fmt.Sprintf("client%d.json", i)), []byte(clientJSON), 0644))
-	}
+	// Create two clients with the same name, plus one that already uses the "-2" suffix
+	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client1.json"),
+		[]byte(`{"id":"dup1","name":"Same Name","public_key":"pub1","allocated_ips":["10.0.0.2/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client2.json"),
+		[]byte(`{"id":"dup2","name":"Same Name-2","public_key":"pub2","allocated_ips":["10.0.0.3/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(clientsDir, "client3.json"),
+		[]byte(`{"id":"dup3","name":"Same Name","public_key":"pub3","allocated_ips":["10.0.0.4/32"],"allowed_ips":["0.0.0.0/0"],"extra_allowed_ips":[],"subnet_ranges":[],"enabled":true}`), 0644))
 
 	err := MigrateFromJSON(db, jsonDBPath)
 	require.NoError(t, err)
