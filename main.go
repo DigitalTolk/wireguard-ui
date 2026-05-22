@@ -229,10 +229,7 @@ func main() {
 	router.RegisterAPIv1(apiV1, db, sendmail, cw, defaultEmailSubject, defaultEmailContent, appVersion, gitCommit, auditLog)
 
 	// OIDC SSO routes
-	oidcProvider, err := handler.NewOIDCProvider()
-	if err != nil {
-		log.Warnf("OIDC configuration failed: %v", err)
-	}
+	oidcProvider := initOIDCWithRetry()
 	if oidcProvider != nil {
 		apiV1.GET("/auth/oidc/login", handler.APIStartOIDCLogin(oidcProvider))
 		apiV1.GET("/auth/oidc/callback", handler.APIHandleOIDCCallback(oidcProvider, db))
@@ -333,4 +330,29 @@ func initServerConfig(db store.IStore, tmplDir fs.FS) {
 	if err != nil {
 		log.Fatalf("Cannot create server config: %v", err)
 	}
+}
+
+// initOIDCWithRetry runs OIDC discovery with exponential backoff. If OIDC is
+// not configured it returns nil. If discovery keeps failing (e.g. transient
+// DNS/network issues against the IdP), it exits non-zero so systemd restarts
+// us rather than leaving SSO permanently disabled.
+func initOIDCWithRetry() *handler.OIDCProvider {
+	const maxAttempts = 8
+	const maxBackoff = 30 * time.Second
+	backoff := time.Second
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		provider, err := handler.NewOIDCProvider()
+		if err == nil {
+			return provider
+		}
+		if attempt == maxAttempts {
+			log.Fatalf("OIDC discovery failed after %d attempts, exiting for service manager restart: %v", maxAttempts, err)
+		}
+		log.Warnf("OIDC discovery failed (attempt %d/%d), retrying in %s: %v", attempt, maxAttempts, backoff, err)
+		time.Sleep(backoff)
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	return nil
 }

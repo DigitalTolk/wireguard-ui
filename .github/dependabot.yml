@@ -23,6 +23,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # stay on Node 24 LTS; revisit when ready to move LTS lines
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: github-actions
