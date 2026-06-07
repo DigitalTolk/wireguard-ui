@@ -1,8 +1,16 @@
 package store
 
 import (
+	"errors"
+	"time"
+
 	"github.com/DigitalTolk/wireguard-ui/model"
 )
+
+// ErrAPITokenNotFound is returned by IStore implementations when an API token
+// lookup or mutation targets a row that doesn't exist. Handlers use it to map
+// onto HTTP 404 vs generic 500.
+var ErrAPITokenNotFound = errors.New("api token not found")
 
 type IStore interface {
 	Init() error
@@ -29,4 +37,11 @@ type IStore interface {
 	GetPath() string
 	SaveHashes(hashes model.ClientServerHashes) error
 	GetHashes() (model.ClientServerHashes, error)
+
+	// API tokens
+	CreateAPIToken(token model.APIToken, tokenHash string) error
+	ListAPITokens() ([]model.APIToken, error)
+	GetAPITokenByHash(tokenHash string) (model.APIToken, error)
+	RevokeAPIToken(id string) error
+	TouchAPITokenLastUsed(id string, when time.Time) error
 }

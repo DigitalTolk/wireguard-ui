@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
 import type { GlobalSetting } from "@/lib/types";
+import { APITokensCard } from "@/components/APITokensCard";
 
 type FilenameMode = "static" | "regex";
 
@@ -416,6 +417,8 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <APITokensCard />
     </div>
   );
 }
