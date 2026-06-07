@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -29,6 +30,25 @@ var DefaultQRCodeSettings = model.QRCodeSettings{
 	Enabled:    true,
 	IncludeDNS: true,
 	IncludeMTU: true,
+}
+
+// ApplyNamePattern applies a regex pattern + replacement template to an input
+// string. Returns the transformed string, or empty string if the pattern is
+// empty or fails to compile / match. Replacement uses Go's regexp syntax
+// ($1, $2, $name etc.) — translated from the JS-style $1 inputs we accept
+// in the settings UI.
+func ApplyNamePattern(input, pattern, replacement string) string {
+	if pattern == "" {
+		return ""
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return ""
+	}
+	if !re.MatchString(input) {
+		return ""
+	}
+	return re.ReplaceAllString(input, replacement)
 }
 
 // BuildClientConfig to create wireguard client config string

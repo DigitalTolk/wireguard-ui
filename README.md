@@ -17,6 +17,7 @@ Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui) 
 - Audit logging with Excel export (ISO 27001 evidence)
 - SQLite database (pure Go, no CGO)
 - Client management: QR codes, config download, email delivery
+- Configurable regex-based naming for clients and emailed config files
 - Server-side search and filtering with bookmarkable URLs
 - Input validation (frontend + backend)
 - Multi-platform Docker images (linux/amd64, linux/arm64)
@@ -154,6 +155,24 @@ A health endpoint is available at `/_health` (or `{BASE_PATH}/_health` when usin
 
 ```sh
 curl http://localhost:5000/_health
+```
+
+## Client workflow
+
+### Naming patterns
+
+Two optional regex-based patterns are exposed under **Settings → Naming Patterns**. Both apply to the client's email address; both use Go-compatible regex syntax and `$1`, `$2`, … in the replacement.
+
+| Pattern | Used to derive | Empty behavior |
+|---|---|---|
+| **Client Name Pattern** | The client's name when adding a single client via the UI (pre-fills the name input when the email is entered first) | Auto-fill disabled |
+| **Email Filename Pattern** | The `.conf` attachment filename when emailing a config (a radio toggle switches between **Static name** — a single literal filename used for every email — and **Regex pattern** — derived per-recipient) | Falls back to the client's name (e.g. `alice-laptop.conf`) |
+
+Example — turn `first.last@example.com` into `abc-firstlast-def`:
+
+```
+Pattern:     ^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$
+Replacement: abc-$1$2-def
 ```
 
 ## Development

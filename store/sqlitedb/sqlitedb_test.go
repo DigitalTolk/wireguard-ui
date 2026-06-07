@@ -1,6 +1,7 @@
 package sqlitedb
 
 import (
+	"database/sql"
 	"fmt"
 	"net"
 	"os"
@@ -341,6 +342,97 @@ func TestSaveGlobalSettings(t *testing.T) {
 	assert.Equal(t, []string{"8.8.8.8", "8.8.4.4"}, got.DNSServers)
 	assert.Equal(t, 1400, got.MTU)
 	assert.Equal(t, 25, got.PersistentKeepalive)
+}
+
+func TestSaveAndGetGlobalSettings_NamingPatterns(t *testing.T) {
+	db := initTestDB(t)
+
+	gs, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	gs.ClientNamePattern = `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`
+	gs.ClientNameReplacement = "$1$2"
+	gs.EmailFilenamePattern = `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`
+	gs.EmailFilenameReplacement = "abc-$1$2-def"
+	gs.UpdatedAt = time.Now().UTC()
+
+	require.NoError(t, db.SaveGlobalSettings(gs))
+
+	got, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	assert.Equal(t, `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`, got.ClientNamePattern)
+	assert.Equal(t, "$1$2", got.ClientNameReplacement)
+	assert.Equal(t, `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`, got.EmailFilenamePattern)
+	assert.Equal(t, "abc-$1$2-def", got.EmailFilenameReplacement)
+}
+
+// Simulate a pre-existing DB that was created before the naming-pattern
+// columns existed, then verify that opening it with New + Init applies the
+// migration (ALTER TABLE) and that the round-trip still works.
+func TestMigrate_AddsNamingPatternColumns(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy.db")
+
+	// Create a DB with the OLD global_settings shape (no naming columns).
+	rawDB, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = rawDB.Exec(`CREATE TABLE global_settings (
+		id                   INTEGER PRIMARY KEY CHECK (id = 1),
+		endpoint_address     TEXT NOT NULL DEFAULT '',
+		dns_servers          TEXT NOT NULL DEFAULT '[]',
+		mtu                  INTEGER NOT NULL DEFAULT 1450,
+		persistent_keepalive INTEGER NOT NULL DEFAULT 15,
+		firewall_mark        TEXT NOT NULL DEFAULT '0xca6c',
+		"table"              TEXT NOT NULL DEFAULT 'auto',
+		config_file_path     TEXT NOT NULL DEFAULT '/etc/wireguard/wg0.conf',
+		updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`)
+	require.NoError(t, err)
+	_, err = rawDB.Exec(
+		`INSERT INTO global_settings (id, endpoint_address, dns_servers, updated_at) VALUES (1, ?, ?, ?)`,
+		"10.0.0.1", `["1.1.1.1"]`, time.Now().UTC(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, rawDB.Close())
+
+	// The naming columns don't exist yet.
+	rawDB, err = sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	var preCount int
+	require.NoError(t,
+		rawDB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('global_settings') WHERE name IN ('client_name_pattern', 'client_name_replacement', 'email_filename_pattern', 'email_filename_replacement')`).Scan(&preCount),
+	)
+	require.Equal(t, 0, preCount, "columns should not exist before migration")
+	require.NoError(t, rawDB.Close())
+
+	// Open via the real constructor + Init — this triggers migrate().
+	os.Setenv("WGUI_ENDPOINT_ADDRESS", "10.0.0.1")
+	db, err := New(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, db.Init())
+
+	// All four columns should now exist.
+	var postCount int
+	require.NoError(t,
+		db.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('global_settings') WHERE name IN ('client_name_pattern', 'client_name_replacement', 'email_filename_pattern', 'email_filename_replacement')`).Scan(&postCount),
+	)
+	assert.Equal(t, 4, postCount, "all four naming columns should be added")
+
+	// Pre-existing data is preserved and new columns default to "".
+	gs, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "10.0.0.1", gs.EndpointAddress)
+	assert.Equal(t, "", gs.ClientNamePattern)
+	assert.Equal(t, "", gs.EmailFilenameReplacement)
+
+	// Round-trip writes still work on the migrated DB.
+	gs.ClientNamePattern = "^(.+)@.+$"
+	gs.ClientNameReplacement = "user-$1"
+	gs.UpdatedAt = time.Now().UTC()
+	require.NoError(t, db.SaveGlobalSettings(gs))
+	got, err := db.GetGlobalSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "^(.+)@.+$", got.ClientNamePattern)
+	assert.Equal(t, "user-$1", got.ClientNameReplacement)
 }
 
 // --- Hashes Tests ---

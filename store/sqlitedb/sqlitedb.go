@@ -67,6 +67,19 @@ func (o *SqliteDB) migrate() {
 	if _, err := o.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_name ON clients(name)`); err != nil {
 		log.Warnf("migrate: create idx_clients_name: %v", err)
 	}
+
+	// add naming pattern columns to global_settings if missing (older databases)
+	for _, col := range []string{"client_name_pattern", "client_name_replacement", "email_filename_pattern", "email_filename_replacement"} {
+		var exists int
+		o.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('global_settings') WHERE name = ?`, col).Scan(&exists)
+		if exists == 0 {
+			if _, err := o.db.Exec(fmt.Sprintf(`ALTER TABLE global_settings ADD COLUMN %s TEXT NOT NULL DEFAULT ''`, col)); err != nil {
+				log.Warnf("migrate: add global_settings.%s: %v", col, err)
+			} else {
+				log.Infof("migrate: added global_settings.%s column", col)
+			}
+		}
+	}
 	if _, err := o.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_public_key ON clients(public_key) WHERE public_key != ''`); err != nil {
 		log.Warnf("migrate: create idx_clients_public_key: %v", err)
 	}
@@ -166,8 +179,8 @@ func (o *SqliteDB) Init() error {
 		dnsServers := util.LookupEnvOrStrings(util.DNSEnvVar, []string{util.DefaultDNS})
 		dnsJSON, _ := json.Marshal(dnsServers)
 		_, err := o.db.Exec(
-			`INSERT INTO global_settings (id, endpoint_address, dns_servers, mtu, persistent_keepalive, firewall_mark, "table", config_file_path, updated_at)
-			 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO global_settings (id, endpoint_address, dns_servers, mtu, persistent_keepalive, firewall_mark, "table", config_file_path, client_name_pattern, client_name_replacement, email_filename_pattern, email_filename_replacement, updated_at)
+			 VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			endpointAddress,
 			string(dnsJSON),
 			util.LookupEnvOrInt(util.MTUEnvVar, util.DefaultMTU),
@@ -175,6 +188,10 @@ func (o *SqliteDB) Init() error {
 			util.LookupEnvOrString(util.FirewallMarkEnvVar, util.DefaultFirewallMark),
 			util.LookupEnvOrString(util.TableEnvVar, util.DefaultTable),
 			util.LookupEnvOrString(util.ConfigFilePathEnvVar, util.DefaultConfigFilePath),
+			"",
+			"",
+			"",
+			"",
 			time.Now().UTC(),
 		)
 		if err != nil {
@@ -278,9 +295,9 @@ func (o *SqliteDB) GetGlobalSettings() (model.GlobalSetting, error) {
 	var gs model.GlobalSetting
 	var dnsJSON string
 	err := o.db.QueryRow(
-		`SELECT endpoint_address, dns_servers, mtu, persistent_keepalive, firewall_mark, "table", config_file_path, updated_at
+		`SELECT endpoint_address, dns_servers, mtu, persistent_keepalive, firewall_mark, "table", config_file_path, client_name_pattern, client_name_replacement, email_filename_pattern, email_filename_replacement, updated_at
 		 FROM global_settings WHERE id = 1`,
-	).Scan(&gs.EndpointAddress, &dnsJSON, &gs.MTU, &gs.PersistentKeepalive, &gs.FirewallMark, &gs.Table, &gs.ConfigFilePath, &gs.UpdatedAt)
+	).Scan(&gs.EndpointAddress, &dnsJSON, &gs.MTU, &gs.PersistentKeepalive, &gs.FirewallMark, &gs.Table, &gs.ConfigFilePath, &gs.ClientNamePattern, &gs.ClientNameReplacement, &gs.EmailFilenamePattern, &gs.EmailFilenameReplacement, &gs.UpdatedAt)
 	if err != nil {
 		return gs, err
 	}
@@ -460,9 +477,12 @@ func (o *SqliteDB) SaveGlobalSettings(globalSettings model.GlobalSetting) error 
 	dnsJSON, _ := json.Marshal(globalSettings.DNSServers)
 	_, err := o.db.Exec(
 		`UPDATE global_settings SET endpoint_address = ?, dns_servers = ?, mtu = ?, persistent_keepalive = ?,
-		 firewall_mark = ?, "table" = ?, config_file_path = ?, updated_at = ? WHERE id = 1`,
+		 firewall_mark = ?, "table" = ?, config_file_path = ?, client_name_pattern = ?, client_name_replacement = ?, email_filename_pattern = ?, email_filename_replacement = ?, updated_at = ? WHERE id = 1`,
 		globalSettings.EndpointAddress, string(dnsJSON), globalSettings.MTU, globalSettings.PersistentKeepalive,
-		globalSettings.FirewallMark, globalSettings.Table, globalSettings.ConfigFilePath, globalSettings.UpdatedAt,
+		globalSettings.FirewallMark, globalSettings.Table, globalSettings.ConfigFilePath,
+		globalSettings.ClientNamePattern, globalSettings.ClientNameReplacement,
+		globalSettings.EmailFilenamePattern, globalSettings.EmailFilenameReplacement,
+		globalSettings.UpdatedAt,
 	)
 	return err
 }
