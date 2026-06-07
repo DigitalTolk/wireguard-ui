@@ -363,7 +363,7 @@ describe("ClientsPage interactions", () => {
     await user.type(searchInput, "test{Enter}");
   });
 
-  it("clicks search button", async () => {
+  it("updates URL search param as user types (debounced)", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
     renderWithProviders(<ClientsPage />);
@@ -372,9 +372,19 @@ describe("ClientsPage interactions", () => {
       expect(screen.getByPlaceholderText("Name, email, or IP...")).toBeInTheDocument();
     });
 
-    // There may be multiple elements with "Search" label; get the button one
-    const searchBtns = screen.getAllByLabelText("Search");
-    await user.click(searchBtns[0]);
+    const searchInput = screen.getByPlaceholderText("Name, email, or IP...");
+    await user.type(searchInput, "live");
+
+    // After the debounce, the URL should carry the search query
+    await waitFor(
+      () => {
+        expect(window.location.search).toContain("search=live");
+      },
+      { timeout: 1000 },
+    );
+
+    // Clean up URL for the rest of the suite
+    window.history.pushState({}, "", "/");
   });
 
   it("opens edit dialog and populates form", async () => {
@@ -1097,7 +1107,7 @@ describe("ClientsPage interactions", () => {
     await user.click(searchBtns[0]);
   });
 
-  it("clears search filter to trigger delete branch", async () => {
+  it("clearing the search input removes the search param after debounce", async () => {
     const user = userEvent.setup();
     cleanup = mockFetch({ "/auth/me": adminMe, "/clients": [], "/subnet-ranges": [] });
 
@@ -1109,10 +1119,15 @@ describe("ClientsPage interactions", () => {
       expect(screen.getByPlaceholderText("Name, email, or IP...")).toBeInTheDocument();
     });
 
-    // Clear the search and submit to clear the param
     const searchInput = screen.getByPlaceholderText("Name, email, or IP...");
     await user.clear(searchInput);
-    await user.type(searchInput, "{Enter}");
+
+    await waitFor(
+      () => {
+        expect(window.location.search).not.toContain("search=");
+      },
+      { timeout: 1000 },
+    );
 
     // Clean up URL
     window.history.pushState({}, "", "/");

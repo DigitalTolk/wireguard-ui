@@ -143,6 +143,22 @@ export function ClientsPage() {
   const [searchDirty, setSearchDirty] = useState<string | null>(null);
   const searchInput = searchDirty ?? filterSearch;
 
+  // Debounce search input → URL so typing triggers live filtering
+  // without flooding the URL/history.
+  useEffect(() => {
+    if (searchDirty === null) return;
+    const t = window.setTimeout(() => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (searchDirty) next.set("search", searchDirty);
+        else next.delete("search");
+        return next;
+      }, { replace: true });
+      setSearchDirty(null);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [searchDirty, setSearchParams]);
+
   const setFilter = useCallback(
     (key: string, value: string) => {
       setSearchParams((prev) => {
@@ -398,25 +414,15 @@ export function ClientsPage() {
           <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <div className="grid gap-2">
               <Label htmlFor="filter-search">Search</Label>
-              <div className="flex gap-2">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
                   id="filter-search"
-                  className="min-w-0"
+                  className="min-w-0 pl-8"
                   placeholder="Name, email, or IP..."
                   value={searchInput}
                   onChange={(e) => setSearchDirty(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { setFilter("search", searchInput); setSearchDirty(null); }
-                  }}
                 />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => { setFilter("search", searchInput); setSearchDirty(null); }}
-                  aria-label="Search"
-                >
-                  <Search className="h-4 w-4" />
-                </Button>
               </div>
             </div>
             <div className="grid gap-2">
