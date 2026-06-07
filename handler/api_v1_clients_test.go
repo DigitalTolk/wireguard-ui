@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -2092,6 +2094,214 @@ func TestIsConnected_OldHandshake(t *testing.T) {
 
 func TestIsConnected_ExactlyAtThreshold(t *testing.T) {
 	assert.False(t, isConnected(time.Now().Add(-connectedThreshold)), "exactly at threshold must be disconnected")
+}
+
+// --- Bundle endpoints (zip downloads for bulk-create) ---
+
+func TestAPIBundleClientConfigs_ZipsRequestedClients(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+	id1, id2 := xid.New().String(), xid.New().String()
+	env.db.SaveClient(model.Client{
+		ID: id1, Name: "alpha", PublicKey: "p1", PrivateKey: "pk1",
+		AllocatedIPs: []string{"10.252.1.10/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	env.db.SaveClient(model.Client{
+		ID: id2, Name: "beta", PublicKey: "p2", PrivateKey: "pk2",
+		AllocatedIPs: []string{"10.252.1.11/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	req, rec := jsonRequest(http.MethodGet, fmt.Sprintf("/api/v1/clients/bundle/configs.zip?ids=%s,%s", id1, id2), nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientConfigs(env.db)(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/zip", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Header().Get("Content-Disposition"), `filename="wireguard-configs.zip"`)
+
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.ElementsMatch(t, []string{"alpha.conf", "beta.conf"}, names)
+}
+
+func TestAPIBundleClientConfigs_RejectsMissingIDs(t *testing.T) {
+	env := setupTestEnv(t)
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/clients/bundle/configs.zip", nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientConfigs(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAPIBundleClientConfigs_RejectsMalformedID(t *testing.T) {
+	env := setupTestEnv(t)
+	req, rec := jsonRequest(http.MethodGet, "/api/v1/clients/bundle/configs.zip?ids=not-an-xid", nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientConfigs(env.db)(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAPIBundleClientConfigs_SkipsUnknownIDs(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+	known := xid.New().String()
+	missing := xid.New().String()
+	env.db.SaveClient(model.Client{
+		ID: known, Name: "only-existing", PublicKey: "pk", PrivateKey: "pri",
+		AllocatedIPs: []string{"10.252.1.12/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	req, rec := jsonRequest(http.MethodGet, fmt.Sprintf("/api/v1/clients/bundle/configs.zip?ids=%s,%s", known, missing), nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientConfigs(env.db)(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1)
+	assert.Equal(t, "only-existing.conf", zr.File[0].Name)
+}
+
+func TestAPIBundleClientConfigs_EmptyZipWhenAllUnknown(t *testing.T) {
+	env := setupTestEnv(t)
+	a, b := xid.New().String(), xid.New().String()
+	req, rec := jsonRequest(http.MethodGet, fmt.Sprintf("/api/v1/clients/bundle/configs.zip?ids=%s,%s", a, b), nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientConfigs(env.db)(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	assert.Empty(t, zr.File, "unknown IDs should produce an empty zip, not an error")
+}
+
+func TestAPIBundleClientQRCodes_SkipsClientsWithoutPrivateKey(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+	withKey := xid.New().String()
+	noKey := xid.New().String()
+	env.db.SaveClient(model.Client{
+		ID: withKey, Name: "has-key", PublicKey: "pk1", PrivateKey: "priv1",
+		AllocatedIPs: []string{"10.252.1.14/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+	env.db.SaveClient(model.Client{
+		// PrivateKey intentionally empty — backend can't generate a QR.
+		ID: noKey, Name: "no-key", PublicKey: "pk2", PrivateKey: "",
+		AllocatedIPs: []string{"10.252.1.15/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	req, rec := jsonRequest(http.MethodGet, fmt.Sprintf("/api/v1/clients/bundle/qrcodes.zip?ids=%s,%s", withKey, noKey), nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientQRCodes(env.db)(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1, "client without a private key should be silently skipped")
+	assert.Equal(t, "has-key.png", zr.File[0].Name)
+}
+
+func TestAPIBundleEndpoints_RequireAdmin(t *testing.T) {
+	origDisable := util.DisableLogin
+	util.DisableLogin = false
+	defer func() { util.DisableLogin = origDisable }()
+
+	env := setupTestEnv(t)
+	util.DisableLogin = false // setupTestEnv re-enables it; we need real auth
+	now := time.Now().UTC()
+
+	env.db.SaveUser(model.User{Username: "viewer", Email: "viewer@test.com", Admin: false, CreatedAt: now, UpdatedAt: now})
+	crc := util.GetDBUserCRC32(model.User{Username: "viewer", Email: "viewer@test.com", Admin: false, CreatedAt: now, UpdatedAt: now})
+	util.DBUsersToCRC32Mutex.Lock()
+	util.DBUsersToCRC32["viewer"] = crc
+	util.DBUsersToCRC32Mutex.Unlock()
+	defer func() {
+		util.DBUsersToCRC32Mutex.Lock()
+		delete(util.DBUsersToCRC32, "viewer")
+		util.DBUsersToCRC32Mutex.Unlock()
+	}()
+
+	id := xid.New().String()
+	env.db.SaveClient(model.Client{
+		ID: id, Name: "anything", Email: "viewer@test.com",
+		PublicKey: "vp", PrivateKey: "vpriv",
+		AllocatedIPs: []string{"10.252.1.16/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, UseServerDNS: true, CreatedAt: now, UpdatedAt: now,
+	})
+
+	// Register the bundle routes WITH the APIAdmin guard, just like router.go does.
+	env.echo.GET("/setup-session-bundle", func(c echo.Context) error {
+		createSession(c, "viewer", false, crc)
+		return c.String(http.StatusOK, "ok")
+	})
+	env.echo.GET("/configs-bundle", APIBundleClientConfigs(env.db), APIAuth, APIAdmin)
+	env.echo.GET("/qrcodes-bundle", APIBundleClientQRCodes(env.db), APIAuth, APIAdmin)
+
+	req1, rec1 := jsonRequest(http.MethodGet, "/setup-session-bundle", nil)
+	env.echo.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+	cookies := rec1.Result().Cookies()
+
+	for _, path := range []string{"/configs-bundle?ids=" + id, "/qrcodes-bundle?ids=" + id} {
+		req, rec := jsonRequest(http.MethodGet, path, nil)
+		for _, ck := range cookies {
+			req.AddCookie(ck)
+		}
+		env.echo.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "non-admin must not access %s", path)
+	}
+}
+
+func TestAPIBundleClientQRCodes_ZipsRequestedClients(t *testing.T) {
+	env := setupTestEnv(t)
+	now := time.Now().UTC()
+	id1, id2 := xid.New().String(), xid.New().String()
+	// QR codes are only produced for clients that have a private key.
+	for _, c := range []struct{ id, name, pk string }{
+		{id1, "alpha", "priv1"},
+		{id2, "beta", "priv2"},
+	} {
+		env.db.SaveClient(model.Client{
+			ID: c.id, Name: c.name, PublicKey: c.id, PrivateKey: c.pk,
+			AllocatedIPs: []string{"10.252.1.13/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+			ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+			Enabled: true, CreatedAt: now, UpdatedAt: now,
+		})
+	}
+
+	req, rec := jsonRequest(http.MethodGet, fmt.Sprintf("/api/v1/clients/bundle/qrcodes.zip?ids=%s,%s", id1, id2), nil)
+	c := env.echo.NewContext(req, rec)
+	err := APIBundleClientQRCodes(env.db)(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/zip", rec.Header().Get("Content-Type"))
+
+	zr, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	require.NoError(t, err)
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.ElementsMatch(t, []string{"alpha.png", "beta.png"}, names)
 }
 
 // --- Email attachment filename pattern ---

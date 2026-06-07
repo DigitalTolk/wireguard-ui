@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -459,6 +461,121 @@ func APIDownloadClientConfig(db store.IStore) echo.HandlerFunc {
 		c.Response().Header().Set(echo.HeaderContentDisposition, fmt.Sprintf("attachment; filename=%s.conf", clientData.Client.Name))
 		auditLogEvent(c, "client.config.download", "client", clientID, map[string]string{"name": clientData.Client.Name, "email": clientData.Client.Email})
 		return c.Stream(http.StatusOK, "text/conf", strings.NewReader(config))
+	}
+}
+
+// parseBundleIDs reads a comma-separated `ids` query param and validates each
+// is a well-formed xid. Returns an error response on invalid input.
+func parseBundleIDs(c echo.Context) ([]string, error) {
+	raw := c.QueryParam("ids")
+	if strings.TrimSpace(raw) == "" {
+		return nil, apiBadRequest(c, "ids query parameter is required")
+	}
+	parts := strings.Split(raw, ",")
+	ids := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, err := xid.FromString(p); err != nil {
+			return nil, apiBadRequest(c, fmt.Sprintf("Invalid client ID: %s", p))
+		}
+		ids = append(ids, p)
+	}
+	if len(ids) == 0 {
+		return nil, apiBadRequest(c, "ids query parameter is required")
+	}
+	return ids, nil
+}
+
+// APIBundleClientConfigs returns a zip archive of .conf files for the given
+// client IDs. Used by the bulk-create flow so the browser only fires one
+// download instead of N (which most browsers block as suspicious behavior).
+func APIBundleClientConfigs(db store.IStore) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ids, errResp := parseBundleIDs(c)
+		if errResp != nil {
+			return errResp
+		}
+
+		server, err := db.GetServer()
+		if err != nil {
+			return apiInternalError(c, "Cannot get server config")
+		}
+		globalSettings, err := db.GetGlobalSettings()
+		if err != nil {
+			return apiInternalError(c, "Cannot get global settings")
+		}
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		auditIDs := make([]string, 0, len(ids))
+		for _, id := range ids {
+			cd, err := db.GetClientByID(id, model.QRCodeSettings{Enabled: false})
+			if err != nil {
+				continue // skip missing — caller already verified existence
+			}
+			config := util.BuildClientConfig(*cd.Client, server, globalSettings)
+			f, err := zw.Create(fmt.Sprintf("%s.conf", cd.Client.Name))
+			if err != nil {
+				return apiInternalError(c, fmt.Sprintf("Cannot build zip: %v", err))
+			}
+			if _, err := f.Write([]byte(config)); err != nil {
+				return apiInternalError(c, fmt.Sprintf("Cannot write zip: %v", err))
+			}
+			auditIDs = append(auditIDs, cd.Client.ID)
+		}
+		if err := zw.Close(); err != nil {
+			return apiInternalError(c, fmt.Sprintf("Cannot finalize zip: %v", err))
+		}
+
+		auditLogEvent(c, "client.config.download.bundle", "client", "", map[string]interface{}{"count": len(auditIDs), "ids": auditIDs})
+		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="wireguard-configs.zip"`)
+		return c.Blob(http.StatusOK, "application/zip", buf.Bytes())
+	}
+}
+
+// APIBundleClientQRCodes returns a zip archive of PNG QR codes for the given
+// client IDs.
+func APIBundleClientQRCodes(db store.IStore) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ids, errResp := parseBundleIDs(c)
+		if errResp != nil {
+			return errResp
+		}
+
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		auditIDs := make([]string, 0, len(ids))
+		for _, id := range ids {
+			cd, err := db.GetClientByID(id, util.DefaultQRCodeSettings)
+			if err != nil {
+				continue
+			}
+			if cd.QRCode == "" {
+				continue
+			}
+			raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(cd.QRCode, "data:image/png;base64,"))
+			if err != nil {
+				return apiInternalError(c, "Cannot decode QR code")
+			}
+			f, err := zw.Create(fmt.Sprintf("%s.png", cd.Client.Name))
+			if err != nil {
+				return apiInternalError(c, fmt.Sprintf("Cannot build zip: %v", err))
+			}
+			if _, err := f.Write(raw); err != nil {
+				return apiInternalError(c, fmt.Sprintf("Cannot write zip: %v", err))
+			}
+			auditIDs = append(auditIDs, cd.Client.ID)
+		}
+		if err := zw.Close(); err != nil {
+			return apiInternalError(c, fmt.Sprintf("Cannot finalize zip: %v", err))
+		}
+
+		auditLogEvent(c, "client.qrcode.download.bundle", "client", "", map[string]interface{}{"count": len(auditIDs), "ids": auditIDs})
+		c.Response().Header().Set(echo.HeaderContentDisposition, `attachment; filename="wireguard-qrcodes.zip"`)
+		return c.Blob(http.StatusOK, "application/zip", buf.Bytes())
 	}
 }
 

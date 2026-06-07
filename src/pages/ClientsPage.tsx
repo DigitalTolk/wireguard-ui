@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCreateClient,
   useUpdateClient,
@@ -38,9 +38,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Download, Mail, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
+import { Download, Mail, Pencil, Plus, QrCode, Search, Trash2, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
-import type { Client, ClientData, GlobalSetting } from "@/lib/types";
+import type { AppInfo, Client, ClientData, GlobalSetting } from "@/lib/types";
 
 interface EditFormState {
   name: string;
@@ -174,6 +174,7 @@ export function ClientsPage() {
     },
   });
 
+  const qc = useQueryClient();
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const setStatus = useSetClientStatus();
@@ -184,6 +185,7 @@ export function ClientsPage() {
   const [newClient, setNewClient] = useState({ ...emptyCreateForm });
   const [createTouched, setCreateTouched] = useState(false);
   const [subnetRange, setSubnetRange] = useState("");
+  const [postCreate, setPostCreate] = useState<Client | null>(null);
 
   const [editDialog, setEditDialog] = useState<Client | null>(null);
   const [editForm, setEditForm] = useState<EditFormState>({
@@ -210,6 +212,21 @@ export function ClientsPage() {
     enabled: isAdminUser,
     staleTime: 60_000,
   });
+
+  const { data: appInfo } = useQuery({
+    queryKey: ["app-info"],
+    queryFn: () => apiGet<AppInfo>("/auth/info"),
+    staleTime: Infinity,
+  });
+
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkResults, setBulkResults] = useState<{
+    created: Client[];
+    errors: { email: string; error: string }[];
+  } | null>(null);
+  const [bulkAction, setBulkAction] = useState<"idle" | "downloading" | "emailing">("idle");
 
   // When subnet range changes in create dialog, suggest IPs
   useEffect(() => {
@@ -298,13 +315,177 @@ export function ClientsPage() {
       extra_allowed_ips: splitList(newClient.extra_allowed_ips),
     };
     createClient.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (created) => {
         toast.success("Client created");
         setShowCreate(false);
         setNewClient({ ...emptyCreateForm });
+        setPostCreate(created);
       },
       onError: (err) => toast.error(err.message),
     });
+  };
+
+  const handlePostCreateDownload = () => {
+    if (!postCreate) return;
+    handleDownload(postCreate.id);
+    setPostCreate(null);
+  };
+
+  const handlePostCreateEmail = () => {
+    if (!postCreate) return;
+    const client = postCreate;
+    setPostCreate(null);
+    handleOpenEmail(client);
+  };
+
+  const handlePostCreateQr = () => {
+    if (!postCreate) return;
+    setQrDialog({ Client: postCreate, QRCode: "" });
+    setPostCreate(null);
+  };
+
+  const handleOpenBulk = () => {
+    setBulkText("");
+    setBulkResults(null);
+    setShowBulk(true);
+  };
+
+  const fallbackNameFromEmail = (email: string) =>
+    email.split("@")[0].replace(/[^A-Za-z0-9]+/g, "");
+
+  const runBulkCreate = async () => {
+    const lines = Array.from(new Set(
+      bulkText.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+    ));
+    const created: Client[] = [];
+    const errors: { email: string; error: string }[] = [];
+    setBulkRunning(true);
+    try {
+      for (const email of lines) {
+        if (!isValidEmail(email)) {
+          errors.push({ email, error: "Invalid email" });
+          continue;
+        }
+        let name = "";
+        if (settings?.client_name_pattern) {
+          name = applyNamePattern(
+            email,
+            settings.client_name_pattern,
+            settings.client_name_replacement,
+          );
+        }
+        if (!name) name = fallbackNameFromEmail(email);
+        try {
+          const ips = await apiGet<string[]>("/suggest-client-ips");
+          const defaults = appInfo?.client_defaults;
+          const payload = {
+            name,
+            email,
+            allocated_ips: ips,
+            allowed_ips: defaults?.AllowedIps ?? ["0.0.0.0/0"],
+            extra_allowed_ips: defaults?.ExtraAllowedIps ?? [],
+            use_server_dns: defaults?.UseServerDNS ?? true,
+            additional_notes: "",
+          };
+          const client = await apiPost<Client>("/clients", payload);
+          created.push(client);
+        } catch (err) {
+          errors.push({
+            email,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } finally {
+      setBulkRunning(false);
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      setShowBulk(false);
+      setBulkResults({ created, errors });
+      if (created.length > 0) {
+        toast.success(`Created ${created.length} client${created.length === 1 ? "" : "s"}`);
+      }
+      if (errors.length > 0) {
+        toast.error(`${errors.length} failed`);
+      }
+    }
+  };
+
+  const triggerFileDownload = (url: string, filename: string) => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const downloadBundle = async (path: string, filename: string) => {
+    const res = await fetch(`${API_BASE}${path}`, { credentials: "same-origin" });
+    if (!res.ok) {
+      let message = `HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body?.error?.message) message = body.error.message;
+      } catch {
+        // body wasn't JSON — keep the status code
+      }
+      throw new Error(message);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    triggerFileDownload(url, filename);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+
+  const bulkDownloadConfigs = async () => {
+    if (!bulkResults || bulkResults.created.length === 0) return;
+    setBulkAction("downloading");
+    try {
+      const ids = bulkResults.created.map((c) => c.id).join(",");
+      await downloadBundle(`/clients/bundle/configs.zip?ids=${encodeURIComponent(ids)}`, "wireguard-configs.zip");
+    } catch (err) {
+      toast.error(`Failed to download configs: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBulkAction("idle");
+    }
+  };
+
+  const bulkDownloadQrCodes = async () => {
+    if (!bulkResults || bulkResults.created.length === 0) return;
+    setBulkAction("downloading");
+    try {
+      const ids = bulkResults.created.map((c) => c.id).join(",");
+      await downloadBundle(`/clients/bundle/qrcodes.zip?ids=${encodeURIComponent(ids)}`, "wireguard-qrcodes.zip");
+    } catch (err) {
+      toast.error(`Failed to download QR codes: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBulkAction("idle");
+    }
+  };
+
+  const bulkEmailEach = async () => {
+    if (!bulkResults) return;
+    setBulkAction("emailing");
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const c of bulkResults.created) {
+        try {
+          await apiPost(`/clients/${c.id}/email`, { email: c.email });
+          ok += 1;
+        } catch (err) {
+          fail += 1;
+          toast.error(
+            `Email to ${c.email}: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+      if (ok > 0) toast.success(`Sent ${ok} email${ok === 1 ? "" : "s"}`);
+      if (fail > 0) toast.error(`${fail} email${fail === 1 ? "" : "s"} failed`);
+    } finally {
+      setBulkAction("idle");
+    }
   };
 
   const handleOpenEdit = (client: Client) => {
@@ -384,10 +565,14 @@ export function ClientsPage() {
           <Badge variant="secondary">{clients?.length ?? 0}</Badge>
         </div>
         {isAdminUser && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={handleExport}>
               <Download className="mr-2 h-4 w-4" />
               Export to Excel
+            </Button>
+            <Button variant="outline" onClick={handleOpenBulk}>
+              <UsersIcon className="mr-2 h-4 w-4" />
+              New Clients
             </Button>
             <Button onClick={handleOpenCreate}>
               <Plus className="mr-2 h-4 w-4" />
@@ -935,6 +1120,128 @@ export function ClientsPage() {
               disabled={!emailAddress || emailSending}
             >
               {emailSending ? "Sending..." : "Send"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Create Dialog */}
+      <Dialog open={showBulk} onOpenChange={(open) => !bulkRunning && setShowBulk(open)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>New Clients</DialogTitle>
+            <DialogDescription>
+              Paste one email address per line. Each client will be created with
+              default settings; the name is derived from the email using the
+              Client Name pattern configured under Settings (falls back to the
+              email&apos;s local part if no pattern is set).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 py-2">
+            <Label htmlFor="bulk-emails">Emails</Label>
+            <Textarea
+              id="bulk-emails"
+              className="min-h-[220px] font-mono text-xs"
+              placeholder={"alice@example.com\nbob@example.com\ncarol@example.com"}
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              disabled={bulkRunning}
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setShowBulk(false)} disabled={bulkRunning}>
+              Cancel
+            </Button>
+            <Button onClick={runBulkCreate} disabled={bulkRunning || !bulkText.trim()}>
+              {bulkRunning ? "Creating..." : "Create"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Results / Action Dialog */}
+      <Dialog open={!!bulkResults} onOpenChange={() => bulkAction === "idle" && setBulkResults(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Import complete</DialogTitle>
+            <DialogDescription>
+              {bulkResults?.created.length ?? 0} created
+              {bulkResults && bulkResults.errors.length > 0
+                ? `, ${bulkResults.errors.length} failed`
+                : ""}
+              . Choose how to deliver the new configs.
+            </DialogDescription>
+          </DialogHeader>
+          {bulkResults && bulkResults.errors.length > 0 && (
+            <div className="max-h-40 overflow-auto rounded border border-destructive/40 bg-destructive/5 p-2 text-xs">
+              {bulkResults.errors.map((e, i) => (
+                <div key={i}>
+                  <strong>{e.email}</strong>: {e.error}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button
+              variant="outline"
+              onClick={bulkDownloadConfigs}
+              disabled={bulkAction !== "idle" || !bulkResults?.created.length}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              All configs
+            </Button>
+            <Button
+              variant="outline"
+              onClick={bulkDownloadQrCodes}
+              disabled={bulkAction !== "idle" || !bulkResults?.created.length}
+            >
+              <QrCode className="mr-2 h-4 w-4" />
+              All QR codes
+            </Button>
+            <Button
+              variant="outline"
+              onClick={bulkEmailEach}
+              disabled={bulkAction !== "idle" || !bulkResults?.created.length}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              Email each
+            </Button>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={() => setBulkResults(null)} disabled={bulkAction !== "idle"}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Post-create action dialog */}
+      <Dialog open={!!postCreate} onOpenChange={() => setPostCreate(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Client created</DialogTitle>
+            <DialogDescription>
+              <strong>{postCreate?.name}</strong> is ready. How would you like to
+              share the config?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button variant="outline" onClick={handlePostCreateDownload}>
+              <Download className="mr-2 h-4 w-4" />
+              Download
+            </Button>
+            <Button variant="outline" onClick={handlePostCreateEmail}>
+              <Mail className="mr-2 h-4 w-4" />
+              Email
+            </Button>
+            <Button variant="outline" onClick={handlePostCreateQr}>
+              <QrCode className="mr-2 h-4 w-4" />
+              QR code
+            </Button>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={() => setPostCreate(null)}>
+              Close
             </Button>
           </div>
         </DialogContent>
