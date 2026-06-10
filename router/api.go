@@ -27,6 +27,8 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, cw *h
 	clients.DELETE("/:id", handler.APIDeleteClient(db, cw), handler.APIAdmin)
 	clients.GET("/:id/config", handler.APIDownloadClientConfig(db))
 	clients.GET("/:id/qrcode", handler.APIGetClientQRCode(db))
+	clients.GET("/bundle/configs.zip", handler.APIBundleClientConfigs(db), handler.APIAdmin)
+	clients.GET("/bundle/qrcodes.zip", handler.APIBundleClientQRCodes(db), handler.APIAdmin)
 	clients.POST("/:id/email", handler.APIEmailClient(db, mailer, emailSubject, emailContent), handler.ContentTypeJson)
 
 	// Server (admin only)

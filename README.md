@@ -17,6 +17,7 @@ Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui) 
 - Audit logging with Excel export (ISO 27001 evidence)
 - SQLite database (pure Go, no CGO)
 - Client management: QR codes, config download, email delivery
+- Bulk client creation from a list of emails
 - Configurable regex-based naming for clients and emailed config files
 - Server-side search and filtering with bookmarkable URLs
 - Input validation (frontend + backend)
@@ -174,6 +175,20 @@ Example — turn `first.last@example.com` into `abc-firstlast-def`:
 Pattern:     ^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$
 Replacement: abc-$1$2-def
 ```
+
+### Post-create dialog
+
+After creating a single client, a follow-up dialog offers three immediate actions: **Download** the `.conf`, **Email** it to the client, or show the **QR code**.
+
+### Bulk import — "New clients"
+
+Next to **New client** is a **New clients** button that opens a textarea for one email per line. Each line is created with default IP allocation, Allowed IPs from `WGUI_DEFAULT_CLIENT_*` env vars, and a name derived from the Client Name pattern (or the email's local part if no pattern is set).
+
+After the import finishes, a results dialog reports successes and failures and offers three batch actions:
+
+- Download every config (`.conf`) for the newly-created clients
+- Download every QR code (`.png`)
+- Email each new client their own config
 
 ## Development
 
