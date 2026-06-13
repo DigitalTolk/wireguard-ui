@@ -17,7 +17,7 @@ Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui) 
 - Audit logging with Excel export (ISO 27001 evidence)
 - SQLite database (pure Go, no CGO)
 - Client management: QR codes, config download, email delivery
-- Server-side search and filtering with bookmarkable URLs
+- Live (debounced) search and filtering with bookmarkable URLs
 - Input validation (frontend + backend)
 - Multi-platform Docker images (linux/amd64, linux/arm64)
 
@@ -155,6 +155,12 @@ A health endpoint is available at `/_health` (or `{BASE_PATH}/_health` when usin
 ```sh
 curl http://localhost:5000/_health
 ```
+
+## Client workflow
+
+### Live search
+
+The client list search box updates the URL (and the result set) as you type, with a short debounce. No Enter key or Search button required; the URL stays bookmarkable.
 
 ## Development
 
