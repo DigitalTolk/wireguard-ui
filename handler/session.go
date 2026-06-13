@@ -119,8 +119,19 @@ func getUserHash(sess *sessions.Session) uint32 {
 	}
 }
 
+// Context keys set by APITokenAuth when a request authenticates with a bearer
+// token. They take precedence over the session in currentUser/isAdmin so the
+// usual audit log + admin guards work transparently for token requests.
+const (
+	ctxKeyTokenCaller = "api_token_caller"
+	ctxKeyTokenAdmin  = "api_token_admin"
+)
+
 // currentUser to get username of logged in user
 func currentUser(c echo.Context) string {
+	if caller, ok := c.Get(ctxKeyTokenCaller).(string); ok && caller != "" {
+		return caller
+	}
 	if util.DisableLogin {
 		return ""
 	}
@@ -132,6 +143,9 @@ func currentUser(c echo.Context) string {
 
 // isAdmin to get user type: admin or manager
 func isAdmin(c echo.Context) bool {
+	if admin, ok := c.Get(ctxKeyTokenAdmin).(bool); ok {
+		return admin
+	}
 	if util.DisableLogin {
 		return true
 	}

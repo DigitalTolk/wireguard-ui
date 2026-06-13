@@ -42,6 +42,20 @@ func RegisterAPIv1(g *echo.Group, db store.IStore, mailer emailer.Emailer, cw *h
 	settings.GET("", handler.APIGetSettings(db))
 	settings.PUT("", handler.APIUpdateSettings(db, cw), handler.ContentTypeJson)
 
+	// API tokens management (admin session only; tokens themselves are managed
+	// from the web UI). The token-protected endpoints sit on a separate group
+	// so the auth middleware doesn't get the session check.
+	tokens := g.Group("/api-tokens", handler.APIAuth, handler.APIAdmin)
+	tokens.GET("", handler.APIListAPITokens(db))
+	tokens.POST("", handler.APICreateAPIToken(db), handler.ContentTypeJson)
+	tokens.DELETE("/:id", handler.APIRevokeAPIToken(db))
+
+	// Programmatic API (token-authenticated). Intentionally NOT under
+	// /clients to keep middleware concerns clean.
+	prog := g.Group("", handler.APITokenAuth(db))
+	prog.POST("/provision-client", handler.APIProvisionClient(db, cw, mailer, emailSubject, emailContent), handler.ContentTypeJson)
+	prog.DELETE("/clients/by-email", handler.APIDeleteClientsByEmail(db, cw))
+
 	// Users (admin only)
 	users := g.Group("/users", handler.APIAuth, handler.APIAdmin)
 	users.GET("", handler.APIListUsers(db))

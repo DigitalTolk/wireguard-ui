@@ -17,6 +17,7 @@ Fork of [ngoduykhanh/wireguard-ui](https://github.com/ngoduykhanh/wireguard-ui) 
 - Audit logging with Excel export (ISO 27001 evidence)
 - SQLite database (pure Go, no CGO)
 - Client management: QR codes, config download, email delivery
+- Programmatic API with bearer-token auth for one-shot client provisioning and delete-by-email
 - Configurable regex-based naming for clients and emailed config files
 - Server-side search and filtering with bookmarkable URLs
 - Input validation (frontend + backend)
@@ -173,6 +174,83 @@ Example — turn `first.last@example.com` into `abc-firstlast-def`:
 ```
 Pattern:     ^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$
 Replacement: abc-$1$2-def
+```
+
+## Programmatic API
+
+Admins can mint long-lived bearer tokens under **Settings → API Tokens** to drive two automation-friendly endpoints. Tokens are admin-level — there are no scopes today. The plaintext is shown **once** at creation and only the SHA-256 hash is persisted; if you lose it, revoke the entry and mint a new one.
+
+Pass tokens via the `Authorization` header:
+
+```
+Authorization: Bearer wgui_<48 hex chars>
+```
+
+### `POST /api/v1/provision-client`
+
+Creates a client in one round-trip and delivers the config in the format you ask for. The client name is **always** derived server-side from the Client Name pattern (or the email local-part as a fallback) — the caller cannot override it, which keeps the naming policy enforceable.
+
+Body:
+
+```json
+{ "email": "alice@example.com", "delivery": "config" | "qrcode" | "email" }
+```
+
+Responses:
+
+| `delivery` | Content-Type | Body |
+|---|---|---|
+| `config` | `text/conf` | The `.conf` bytes. `Content-Disposition` filename comes from the Email Filename pattern. |
+| `qrcode` | `image/png` | PNG bytes of the WireGuard QR. |
+| `email` | `application/json` | `{ "id", "name", "email", "sent": true }` after the email is sent. |
+
+Status codes:
+
+- `201 Created` on success
+- `400 Bad Request` for missing/malformed email or unknown delivery
+- `401 Unauthorized` for missing/invalid/revoked token
+- `409 Conflict` if a client with the derived name already exists
+- `500 Internal Server Error` if IP allocation or downstream delivery fails
+
+Example:
+
+```sh
+curl -X POST https://vpn.example.com/api/v1/provision-client \
+  -H "Authorization: Bearer $WGUI_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@example.com","delivery":"config"}' \
+  -o alice.conf
+```
+
+### `DELETE /api/v1/clients/by-email`
+
+Removes every client whose email matches (case-insensitive). To prevent typo-driven mass deletes, multi-match calls require an explicit `?confirm_all=true` query parameter.
+
+Query parameters:
+
+| Name | Required | Description |
+|---|---|---|
+| `email` | yes | Email address to match. |
+| `confirm_all` | no | Set to `true` to delete when multiple clients match. |
+
+Status codes:
+
+- `200 OK` — body `{ "deleted": N, "ids": [...] }` (with optional `failed` array)
+- `400 Bad Request` — missing or malformed email
+- `404 Not Found` — no clients matched
+- `409 Conflict` — multiple matches without `confirm_all=true`; body includes the matched IDs/names
+- `401 Unauthorized` — missing/invalid/revoked token
+
+Example:
+
+```sh
+# Single match — succeeds
+curl -X DELETE "https://vpn.example.com/api/v1/clients/by-email?email=alice@example.com" \
+  -H "Authorization: Bearer $WGUI_TOKEN"
+
+# Multiple devices on one email — explicit confirm required
+curl -X DELETE "https://vpn.example.com/api/v1/clients/by-email?email=bob@example.com&confirm_all=true" \
+  -H "Authorization: Bearer $WGUI_TOKEN"
 ```
 
 ## Development

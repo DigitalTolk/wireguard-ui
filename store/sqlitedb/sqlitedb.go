@@ -121,6 +121,23 @@ func (o *SqliteDB) migrate() {
 		}
 	}
 
+	// api_tokens table for pre-existing databases (schema.sql IF NOT EXISTS
+	// handles fresh installs; this ensures upgrades pick it up too)
+	if _, err := o.db.Exec(`CREATE TABLE IF NOT EXISTS api_tokens (
+		id           TEXT PRIMARY KEY,
+		name         TEXT NOT NULL,
+		token_hash   TEXT NOT NULL UNIQUE,
+		created_by   TEXT NOT NULL DEFAULT '',
+		created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_used_at DATETIME,
+		revoked_at   DATETIME
+	)`); err != nil {
+		log.Warnf("migrate: create api_tokens: %v", err)
+	}
+	if _, err := o.db.Exec(`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`); err != nil {
+		log.Warnf("migrate: create idx_api_tokens_token_hash: %v", err)
+	}
+
 	log.Info("Database migrations complete")
 }
 

@@ -43,3 +43,7 @@ func apiForbidden(c echo.Context, message string) error {
 func apiUnauthorized(c echo.Context, message string) error {
 	return apiError(c, http.StatusUnauthorized, "UNAUTHORIZED", message)
 }
+
+func apiConflict(c echo.Context, message string) error {
+	return apiError(c, http.StatusConflict, "CONFLICT", message)
+}

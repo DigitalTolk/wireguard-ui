@@ -2,6 +2,7 @@ package util
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/DigitalTolk/wireguard-ui/model"
 )
@@ -112,3 +113,8 @@ func (m *mockStore) SaveHashes(hashes model.ClientServerHashes) error {
 func (m *mockStore) GetHashes() (model.ClientServerHashes, error) {
 	return m.hashes, nil
 }
+func (m *mockStore) CreateAPIToken(model.APIToken, string) error      { return nil }
+func (m *mockStore) ListAPITokens() ([]model.APIToken, error)         { return nil, nil }
+func (m *mockStore) GetAPITokenByHash(string) (model.APIToken, error) { return model.APIToken{}, fmt.Errorf("not found") }
+func (m *mockStore) RevokeAPIToken(string) error                      { return nil }
+func (m *mockStore) TouchAPITokenLastUsed(string, time.Time) error    { return nil }

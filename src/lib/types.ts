@@ -122,6 +122,22 @@ export interface AppInfo {
   client_defaults: ClientDefaults;
 }
 
+export interface APIToken {
+  id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+}
+
+// CreateAPITokenResponse extends APIToken with the plaintext that the server
+// returns exactly once at creation time. The frontend MUST show it to the
+// admin immediately and discard it from local state on dialog close.
+export interface CreateAPITokenResponse extends APIToken {
+  token: string;
+}
+
 export interface GitHubRelease {
   tag_name: string;
   published_at: string;

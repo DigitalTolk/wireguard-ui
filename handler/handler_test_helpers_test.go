@@ -53,6 +53,11 @@ func (e *errStore) DeleteWakeOnHost(model.WakeOnLanHost) error               { r
 func (e *errStore) GetPath() string                                          { return "/tmp" }
 func (e *errStore) SaveHashes(model.ClientServerHashes) error                { return fmt.Errorf("db error") }
 func (e *errStore) GetHashes() (model.ClientServerHashes, error)             { return model.ClientServerHashes{}, fmt.Errorf("db error") }
+func (e *errStore) CreateAPIToken(model.APIToken, string) error              { return fmt.Errorf("db error") }
+func (e *errStore) ListAPITokens() ([]model.APIToken, error)                 { return nil, fmt.Errorf("db error") }
+func (e *errStore) GetAPITokenByHash(string) (model.APIToken, error)         { return model.APIToken{}, fmt.Errorf("db error") }
+func (e *errStore) RevokeAPIToken(string) error                              { return fmt.Errorf("db error") }
+func (e *errStore) TouchAPITokenLastUsed(string, time.Time) error            { return fmt.Errorf("db error") }
 
 // saveFailStore is a mock where reads succeed but writes fail.
 // Used to test error paths where a lookup succeeds but saving fails.
@@ -86,6 +91,11 @@ func (s *saveFailStore) DeleteWakeOnHost(model.WakeOnLanHost) error             
 func (s *saveFailStore) GetPath() string                                          { return "/tmp" }
 func (s *saveFailStore) SaveHashes(model.ClientServerHashes) error                { return fmt.Errorf("save error") }
 func (s *saveFailStore) GetHashes() (model.ClientServerHashes, error)             { return model.ClientServerHashes{}, nil }
+func (s *saveFailStore) CreateAPIToken(model.APIToken, string) error              { return fmt.Errorf("save error") }
+func (s *saveFailStore) ListAPITokens() ([]model.APIToken, error)                 { return nil, nil }
+func (s *saveFailStore) GetAPITokenByHash(string) (model.APIToken, error)         { return model.APIToken{}, fmt.Errorf("not found") }
+func (s *saveFailStore) RevokeAPIToken(string) error                              { return fmt.Errorf("save error") }
+func (s *saveFailStore) TouchAPITokenLastUsed(string, time.Time) error            { return nil }
 
 type testEnv struct {
 	db       *sqlitedb.SqliteDB
