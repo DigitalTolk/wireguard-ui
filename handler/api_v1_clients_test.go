@@ -21,14 +21,16 @@ import (
 
 // mockEmailer implements the emailer.Emailer interface for testing
 type mockEmailer struct {
-	sendCalled bool
-	lastTo     string
-	shouldFail bool
+	sendCalled      bool
+	lastTo          string
+	lastAttachments []emailer.Attachment
+	shouldFail      bool
 }
 
 func (m *mockEmailer) Send(toName, to, subject, content string, attachments []emailer.Attachment) error {
 	m.sendCalled = true
 	m.lastTo = to
+	m.lastAttachments = attachments
 	if m.shouldFail {
 		return fmt.Errorf("email send failed")
 	}
@@ -2090,4 +2092,121 @@ func TestIsConnected_OldHandshake(t *testing.T) {
 
 func TestIsConnected_ExactlyAtThreshold(t *testing.T) {
 	assert.False(t, isConnected(time.Now().Add(-connectedThreshold)), "exactly at threshold must be disconnected")
+}
+
+// --- Email attachment filename pattern ---
+
+func emailAClient(t *testing.T, env *testEnv, client model.Client, mailer *mockEmailer) {
+	t.Helper()
+	body := map[string]string{"email": "recipient@test.com"}
+	req, rec := jsonRequest(http.MethodPost, "/api/v1/clients/"+client.ID+"/email", body)
+	c := env.echo.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues(client.ID)
+	err := APIEmailClient(env.db, mailer, "Subject", "Body")(c)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAPIEmailClient_FilenameFallsBackToClientName(t *testing.T) {
+	env := setupTestEnv(t)
+	id := xid.New().String()
+	now := time.Now().UTC()
+	client := model.Client{
+		ID: id, Name: "alice-laptop", Email: "alice.smith@example.com",
+		PublicKey: "p", PrivateKey: "pk",
+		AllocatedIPs: []string{"10.252.1.92/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	env.db.SaveClient(client)
+
+	mailer := &mockEmailer{}
+	emailAClient(t, env, client, mailer)
+
+	require.NotEmpty(t, mailer.lastAttachments)
+	assert.Equal(t, "alice-laptop.conf", mailer.lastAttachments[0].Name)
+}
+
+func TestAPIEmailClient_FilenameUsesPattern(t *testing.T) {
+	env := setupTestEnv(t)
+
+	gs, err := env.db.GetGlobalSettings()
+	require.NoError(t, err)
+	gs.EmailFilenamePattern = `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`
+	gs.EmailFilenameReplacement = "abc-$1$2-def"
+	require.NoError(t, env.db.SaveGlobalSettings(gs))
+
+	id := xid.New().String()
+	now := time.Now().UTC()
+	client := model.Client{
+		ID: id, Name: "alice-laptop", Email: "alice.smith@example.com",
+		PublicKey: "p2", PrivateKey: "pk2",
+		AllocatedIPs: []string{"10.252.1.93/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	env.db.SaveClient(client)
+
+	mailer := &mockEmailer{}
+	emailAClient(t, env, client, mailer)
+
+	require.NotEmpty(t, mailer.lastAttachments)
+	assert.Equal(t, "abc-alicesmith-def.conf", mailer.lastAttachments[0].Name)
+}
+
+func TestAPIEmailClient_FilenameStaticMode(t *testing.T) {
+	env := setupTestEnv(t)
+
+	gs, err := env.db.GetGlobalSettings()
+	require.NoError(t, err)
+	// Static mode: empty pattern, non-empty replacement.
+	gs.EmailFilenamePattern = ""
+	gs.EmailFilenameReplacement = "company-vpn"
+	require.NoError(t, env.db.SaveGlobalSettings(gs))
+
+	id := xid.New().String()
+	now := time.Now().UTC()
+	client := model.Client{
+		ID: id, Name: "ignored-name", Email: "anyone@example.com",
+		PublicKey: "ps", PrivateKey: "pks",
+		AllocatedIPs: []string{"10.252.1.95/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	env.db.SaveClient(client)
+
+	mailer := &mockEmailer{}
+	emailAClient(t, env, client, mailer)
+
+	require.NotEmpty(t, mailer.lastAttachments)
+	assert.Equal(t, "company-vpn.conf", mailer.lastAttachments[0].Name)
+}
+
+func TestAPIEmailClient_FilenameFallsBackOnNoMatch(t *testing.T) {
+	env := setupTestEnv(t)
+
+	gs, err := env.db.GetGlobalSettings()
+	require.NoError(t, err)
+	gs.EmailFilenamePattern = `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`
+	gs.EmailFilenameReplacement = "$1-$2"
+	require.NoError(t, env.db.SaveGlobalSettings(gs))
+
+	id := xid.New().String()
+	now := time.Now().UTC()
+	// email "noatdot@example.com" doesn't have a dot before @ — won't match
+	client := model.Client{
+		ID: id, Name: "fallback-name", Email: "noatdot@example.com",
+		PublicKey: "p3", PrivateKey: "pk3",
+		AllocatedIPs: []string{"10.252.1.94/32"}, AllowedIPs: []string{"0.0.0.0/0"},
+		ExtraAllowedIPs: []string{}, SubnetRanges: []string{},
+		Enabled: true, CreatedAt: now, UpdatedAt: now,
+	}
+	env.db.SaveClient(client)
+
+	mailer := &mockEmailer{}
+	emailAClient(t, env, client, mailer)
+
+	require.NotEmpty(t, mailer.lastAttachments)
+	assert.Equal(t, "fallback-name.conf", mailer.lastAttachments[0].Name)
 }

@@ -52,8 +52,12 @@ CREATE TABLE IF NOT EXISTS global_settings (
     persistent_keepalive INTEGER NOT NULL DEFAULT 15,
     firewall_mark        TEXT NOT NULL DEFAULT '0xca6c',
     "table"              TEXT NOT NULL DEFAULT 'auto',
-    config_file_path     TEXT NOT NULL DEFAULT '/etc/wireguard/wg0.conf',
-    updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    config_file_path             TEXT NOT NULL DEFAULT '/etc/wireguard/wg0.conf',
+    client_name_pattern          TEXT NOT NULL DEFAULT '',
+    client_name_replacement      TEXT NOT NULL DEFAULT '',
+    email_filename_pattern       TEXT NOT NULL DEFAULT '',
+    email_filename_replacement   TEXT NOT NULL DEFAULT '',
+    updated_at                   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS wake_on_lan_hosts (

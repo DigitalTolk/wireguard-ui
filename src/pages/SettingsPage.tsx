@@ -7,10 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
 import type { GlobalSetting } from "@/lib/types";
+
+type FilenameMode = "static" | "regex";
 
 function HelpText({ children }: { children: React.ReactNode }) {
   return <p className="text-muted-foreground">{children}</p>;
@@ -30,6 +33,11 @@ export function SettingsPage() {
   const [fwmark, setFwmark] = useState<string | null>(null);
   const [tbl, setTbl] = useState<string | null>(null);
   const [configPath, setConfigPath] = useState<string | null>(null);
+  const [clientNamePattern, setClientNamePattern] = useState<string | null>(null);
+  const [clientNameReplacement, setClientNameReplacement] = useState<string | null>(null);
+  const [emailFilenamePattern, setEmailFilenamePattern] = useState<string | null>(null);
+  const [emailFilenameReplacement, setEmailFilenameReplacement] = useState<string | null>(null);
+  const [emailFilenameMode, setEmailFilenameMode] = useState<FilenameMode | null>(null);
 
   const endpointVal = endpoint ?? settings?.endpoint_address ?? "";
   const dnsVal = dns ?? settings?.dns_servers?.join(", ") ?? "";
@@ -39,6 +47,19 @@ export function SettingsPage() {
   const fwmarkVal = fwmark ?? settings?.firewall_mark ?? "";
   const tblVal = tbl ?? settings?.table ?? "";
   const configPathVal = configPath ?? settings?.config_file_path ?? "";
+  const clientNamePatternVal = clientNamePattern ?? settings?.client_name_pattern ?? "";
+  const clientNameReplacementVal = clientNameReplacement ?? settings?.client_name_replacement ?? "";
+  const emailFilenamePatternVal = emailFilenamePattern ?? settings?.email_filename_pattern ?? "";
+  const emailFilenameReplacementVal = emailFilenameReplacement ?? settings?.email_filename_replacement ?? "";
+
+  // Derive the mode from saved data: a non-empty replacement with no pattern
+  // means we're using a static filename; anything else (or both empty) shows
+  // the regex inputs.
+  const derivedMode: FilenameMode =
+    !settings?.email_filename_pattern && settings?.email_filename_replacement
+      ? "static"
+      : "regex";
+  const emailFilenameModeVal = emailFilenameMode ?? derivedMode;
 
   const settingsErrors = useMemo(() => {
     const errors: Record<string, string> = {};
@@ -74,8 +95,23 @@ export function SettingsPage() {
     } else if (!configPathVal.trim().startsWith("/")) {
       errors.configPath = "Config file path must be an absolute path (start with /)";
     }
+    const regexFields: Array<[string, string]> = [[clientNamePatternVal, "clientNamePattern"]];
+    // Only validate the email filename pattern when in regex mode — in static
+    // mode that field is hidden and may carry stale data the user can't edit.
+    if (emailFilenameModeVal === "regex") {
+      regexFields.push([emailFilenamePatternVal, "emailFilenamePattern"]);
+    }
+    for (const [val, key] of regexFields) {
+      if (val.trim()) {
+        try {
+          new RegExp(val);
+        } catch {
+          errors[key] = "Invalid regular expression";
+        }
+      }
+    }
     return errors;
-  }, [endpointVal, dnsVal, mtuVal, keepaliveVal, fwmarkVal, configPathVal]);
+  }, [endpointVal, dnsVal, mtuVal, keepaliveVal, fwmarkVal, configPathVal, clientNamePatternVal, emailFilenamePatternVal, emailFilenameModeVal]);
   const settingsValid = Object.keys(settingsErrors).length === 0;
 
   const saveSettings = useMutation({
@@ -88,6 +124,13 @@ export function SettingsPage() {
         firewall_mark: fwmarkVal,
         table: tblVal,
         config_file_path: configPathVal,
+        client_name_pattern: clientNamePatternVal,
+        client_name_replacement: clientNameReplacementVal,
+        // In static mode the pattern is wiped so the backend treats the
+        // replacement as a literal filename.
+        email_filename_pattern:
+          emailFilenameModeVal === "static" ? "" : emailFilenamePatternVal,
+        email_filename_replacement: emailFilenameReplacementVal,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings"] });
@@ -98,6 +141,11 @@ export function SettingsPage() {
       setFwmark(null);
       setTbl(null);
       setConfigPath(null);
+      setClientNamePattern(null);
+      setClientNameReplacement(null);
+      setEmailFilenamePattern(null);
+      setEmailFilenameReplacement(null);
+      setEmailFilenameMode(null);
       toast.success("Settings saved");
     },
     onError: (err: Error) => toast.error(err.message),
@@ -240,6 +288,131 @@ export function SettingsPage() {
               Absolute path where the generated WireGuard configuration is
               written. The server must have write access to this path.
             </HelpText>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Naming Patterns</CardTitle>
+        </CardHeader>
+        <CardContent className="grid items-start gap-6">
+          <HelpText>
+            Each pattern is a regular expression applied to the client&apos;s email
+            address. The replacement template can reference capture groups with{" "}
+            <code>$1</code>, <code>$2</code>, etc. Leave a pattern blank to
+            disable the corresponding transformation.
+            <br />
+            <strong>Example:</strong> pattern{" "}
+            <code>^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$</code> with replacement{" "}
+            <code>abc-$1$2-def</code> turns <code>first.last@example.com</code>{" "}
+            into <code>abc-firstlast-def</code>.
+          </HelpText>
+          <div className="grid items-start gap-6 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="client-name-pattern">Client Name Pattern</Label>
+              <Input
+                id="client-name-pattern"
+                className="font-mono text-xs"
+                placeholder="^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$"
+                value={clientNamePatternVal}
+                onChange={(e) => setClientNamePattern(e.target.value)}
+              />
+              {settingsErrors.clientNamePattern && (
+                <p className="text-destructive">{settingsErrors.clientNamePattern}</p>
+              )}
+              <HelpText>
+                When creating a client, if the email is filled in before the
+                name, this pattern is applied to the email to pre-fill the name
+                field. Leave blank to disable auto-fill.
+              </HelpText>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="client-name-replacement">Client Name Replacement</Label>
+              <Input
+                id="client-name-replacement"
+                className="font-mono text-xs"
+                placeholder="$1$2"
+                value={clientNameReplacementVal}
+                onChange={(e) => setClientNameReplacement(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-3 sm:col-span-2">
+              <Label>Email Filename</Label>
+              <RadioGroup
+                value={emailFilenameModeVal}
+                onValueChange={(v: unknown) =>
+                  setEmailFilenameMode(v === "static" ? "static" : "regex")
+                }
+                aria-label="Email filename mode"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="email-mode-static" value="static" />
+                  <Label htmlFor="email-mode-static" className="font-normal">
+                    Static name
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="email-mode-regex" value="regex" />
+                  <Label htmlFor="email-mode-regex" className="font-normal">
+                    Regex pattern
+                  </Label>
+                </div>
+              </RadioGroup>
+              <HelpText>
+                Determines how the <code>.conf</code> attachment filename is
+                built when emailing a config (the <code>.conf</code> suffix is
+                appended automatically). Leave both inputs empty to fall back
+                to the client&apos;s name.
+              </HelpText>
+            </div>
+            {emailFilenameModeVal === "static" ? (
+              <div className="grid gap-2 sm:col-span-2">
+                <Label htmlFor="email-filename-static">Static Filename</Label>
+                <Input
+                  id="email-filename-static"
+                  className="font-mono text-xs"
+                  placeholder="company-vpn"
+                  value={emailFilenameReplacementVal}
+                  onChange={(e) => setEmailFilenameReplacement(e.target.value)}
+                />
+                <HelpText>
+                  Every emailed config will use this exact filename, regardless
+                  of the recipient&apos;s email address.
+                </HelpText>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="email-filename-pattern">Email Filename Pattern</Label>
+                  <Input
+                    id="email-filename-pattern"
+                    className="font-mono text-xs"
+                    placeholder="^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$"
+                    value={emailFilenamePatternVal}
+                    onChange={(e) => setEmailFilenamePattern(e.target.value)}
+                  />
+                  {settingsErrors.emailFilenamePattern && (
+                    <p className="text-destructive">{settingsErrors.emailFilenamePattern}</p>
+                  )}
+                  <HelpText>
+                    Pattern is applied to the client&apos;s email to derive
+                    the attachment filename. Leave blank to fall back to the
+                    client&apos;s name.
+                  </HelpText>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="email-filename-replacement">Email Filename Replacement</Label>
+                  <Input
+                    id="email-filename-replacement"
+                    className="font-mono text-xs"
+                    placeholder="$1-$2"
+                    value={emailFilenameReplacementVal}
+                    onChange={(e) => setEmailFilenameReplacement(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

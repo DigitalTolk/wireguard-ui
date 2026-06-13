@@ -883,3 +883,53 @@ func TestLookupEnvOrFile_EnvNotSet(t *testing.T) {
 	result := LookupEnvOrFile("TEST_SECRET_FILE_UNSET", "mydefault")
 	assert.Equal(t, "mydefault", result)
 }
+
+func TestApplyNamePattern(t *testing.T) {
+	cases := []struct {
+		name        string
+		input       string
+		pattern     string
+		replacement string
+		want        string
+	}{
+		{
+			name:        "documented example",
+			input:       "first.last@example.com",
+			pattern:     `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`,
+			replacement: "abc-$1$2-def",
+			want:        "abc-firstlast-def",
+		},
+		{
+			name:    "empty pattern yields empty",
+			input:   "anything@example.com",
+			pattern: "",
+			want:    "",
+		},
+		{
+			name:    "invalid regex yields empty",
+			input:   "user@example.com",
+			pattern: "([unclosed",
+			want:    "",
+		},
+		{
+			name:        "no match yields empty",
+			input:       "noatsign",
+			pattern:     `^(.+)@(.+)$`,
+			replacement: "$1-$2",
+			want:        "",
+		},
+		{
+			name:        "single capture group",
+			input:       "alice@example.com",
+			pattern:     `^([a-z]+)@.+$`,
+			replacement: "user-$1",
+			want:        "user-alice",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ApplyNamePattern(tc.input, tc.pattern, tc.replacement)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
