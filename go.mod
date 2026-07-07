@@ -22,7 +22,7 @@ require (
 require (
 	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/stretchr/testify v1.11.1
-	github.com/xuri/excelize/v2 v2.10.1
+	github.com/xuri/excelize/v2 v2.11.0
 	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.53.0
 )
@@ -47,7 +47,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardlehane/mscfb v1.0.6 // indirect
+	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
