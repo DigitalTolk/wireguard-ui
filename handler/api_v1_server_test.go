@@ -65,13 +65,17 @@ func TestAPIUpdateSettings(t *testing.T) {
 	env := setupTestEnv(t)
 
 	body := model.GlobalSetting{
-		EndpointAddress:     "vpn.new.com",
-		DNSServers:          []string{"8.8.8.8"},
-		MTU:                 1400,
-		PersistentKeepalive: 25,
-		FirewallMark:        "0x1234",
-		Table:               "auto",
-		ConfigFilePath:      "/etc/wireguard/wg0.conf",
+		EndpointAddress:          "vpn.new.com",
+		DNSServers:               []string{"8.8.8.8"},
+		MTU:                      1400,
+		PersistentKeepalive:      25,
+		FirewallMark:             "0x1234",
+		Table:                    "auto",
+		ConfigFilePath:           "/etc/wireguard/wg0.conf",
+		ClientNamePattern:        `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`,
+		ClientNameReplacement:    "$1$2",
+		EmailFilenamePattern:     `^([A-Za-z0-9]+)\.([A-Za-z0-9]+)@.+$`,
+		EmailFilenameReplacement: "abc-$1$2-def",
 	}
 
 	req, rec := jsonRequest(http.MethodPut, "/api/v1/settings", body)
@@ -82,6 +86,8 @@ func TestAPIUpdateSettings(t *testing.T) {
 
 	gs, _ := env.db.GetGlobalSettings()
 	assert.Equal(t, "vpn.new.com", gs.EndpointAddress)
+	assert.Equal(t, "$1$2", gs.ClientNameReplacement)
+	assert.Equal(t, "abc-$1$2-def", gs.EmailFilenameReplacement)
 }
 
 func TestAPIUpdateSettings_InvalidDNS(t *testing.T) {

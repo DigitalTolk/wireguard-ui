@@ -10,6 +10,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { apiGet, apiPost, API_BASE } from "@/lib/api-client";
 import { splitList } from "@/lib/utils";
+import { applyNamePattern } from "@/lib/naming";
 import {
   isValidCIDR,
   isValidEmail,
@@ -39,7 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { Download, Mail, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import type { Client, ClientData } from "@/lib/types";
+import type { Client, ClientData, GlobalSetting } from "@/lib/types";
 
 interface EditFormState {
   name: string;
@@ -201,6 +202,13 @@ export function ClientsPage() {
     queryKey: ["subnet-ranges"],
     queryFn: () => apiGet<string[]>("/subnet-ranges"),
     staleTime: Infinity,
+  });
+
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<GlobalSetting>("/settings"),
+    enabled: isAdminUser,
+    staleTime: 60_000,
   });
 
   // When subnet range changes in create dialog, suggest IPs
@@ -592,9 +600,20 @@ export function ClientsPage() {
                 type="email"
                 placeholder="john@example.com"
                 value={newClient.email}
-                onChange={(e) =>
-                  setNewClient((p) => ({ ...p, email: e.target.value }))
-                }
+                onChange={(e) => {
+                  const email = e.target.value;
+                  setNewClient((p) => {
+                    if (p.name.trim() !== "" || !settings?.client_name_pattern) {
+                      return { ...p, email };
+                    }
+                    const derived = applyNamePattern(
+                      email,
+                      settings.client_name_pattern,
+                      settings.client_name_replacement,
+                    );
+                    return { ...p, email, name: derived };
+                  });
+                }}
               />
               {createTouched && createErrors.email && (
                 <p className="text-destructive">{createErrors.email}</p>

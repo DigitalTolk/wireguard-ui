@@ -60,6 +60,10 @@ export interface GlobalSetting {
   firewall_mark: string;
   table: string;
   config_file_path: string;
+  client_name_pattern: string;
+  client_name_replacement: string;
+  email_filename_pattern: string;
+  email_filename_replacement: string;
   updated_at: string;
 }
 

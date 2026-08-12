@@ -522,7 +522,18 @@ func APIEmailClient(db store.IStore, mailer emailer.Emailer, emailSubject, email
 		globalSettings, _ := db.GetGlobalSettings()
 		config := util.BuildClientConfig(*clientData.Client, server, globalSettings)
 
-		cfgAtt := emailer.Attachment{Name: "wg0.conf", Data: []byte(config)}
+		var filename string
+		switch {
+		case strings.TrimSpace(globalSettings.EmailFilenamePattern) == "" && strings.TrimSpace(globalSettings.EmailFilenameReplacement) != "":
+			// Static mode: the replacement is used verbatim as the filename.
+			filename = strings.TrimSpace(globalSettings.EmailFilenameReplacement)
+		default:
+			filename = util.ApplyNamePattern(clientData.Client.Email, globalSettings.EmailFilenamePattern, globalSettings.EmailFilenameReplacement)
+		}
+		if strings.TrimSpace(filename) == "" {
+			filename = clientData.Client.Name
+		}
+		cfgAtt := emailer.Attachment{Name: fmt.Sprintf("%s.conf", filename), Data: []byte(config)}
 		var attachments []emailer.Attachment
 		if clientData.Client.PrivateKey != "" {
 			qrdata, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(clientData.QRCode, "data:image/png;base64,"))
