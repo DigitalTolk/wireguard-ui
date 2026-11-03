@@ -1,6 +1,6 @@
 module github.com/DigitalTolk/wireguard-ui
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/glendc/go-external-ip v0.1.0
@@ -13,7 +13,7 @@ require (
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/xhit/go-simple-mail/v2 v2.16.0
-	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	//golang.zx2c4.com/wireguard v0.0.20200121 // indirect
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	gopkg.in/go-playground/validator.v9 v9.31.0
@@ -22,7 +22,7 @@ require (
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
 	github.com/stretchr/testify v1.11.1
-	github.com/xuri/excelize/v2 v2.11.0
+	github.com/xuri/excelize/v2 v2.11.1-0.20261003002531-6258dcebc4e2
 	golang.org/x/oauth2 v0.36.0
 	modernc.org/sqlite v1.54.0
 )
@@ -47,19 +47,19 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardlehane/mscfb v1.0.7 // indirect
+	github.com/richardlehane/mscfb v1.0.8 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/toorop/go-dkim v0.0.0-20250226130143-9025cce95817 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
-	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/efp v0.0.2 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
